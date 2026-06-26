@@ -30,6 +30,8 @@ class SecurePassApp(ctk.CTk):
         super().__init__()
 
         self.editing_password_id = None
+        self.toast = None
+        self.toast_after_id = None
         database.create_table()
 
         self.title("SecurePass Manager")
@@ -44,8 +46,56 @@ class SecurePassApp(ctk.CTk):
             self.create_master_setup_screen()
 
     def clear_window(self):
+        if self.toast_after_id is not None:
+            self.after_cancel(self.toast_after_id)
+            self.toast_after_id = None
+
         for widget in self.winfo_children():
             widget.destroy()
+        self.toast = None
+
+    def show_toast(self, message, kind="success"):
+        colors = {
+            "success": {
+                "bg": "#14532d",
+                "border": "#22c55e",
+                "text": "#dcfce7",
+            }
+        }
+        style = colors.get(kind, colors["success"])
+
+        if self.toast_after_id is not None:
+            self.after_cancel(self.toast_after_id)
+            self.toast_after_id = None
+
+        if self.toast is not None and self.toast.winfo_exists():
+            self.toast.destroy()
+
+        self.toast = ctk.CTkFrame(
+            self,
+            corner_radius=14,
+            fg_color=style["bg"],
+            border_width=1,
+            border_color=style["border"]
+        )
+
+        ctk.CTkLabel(
+            self.toast,
+            text=message,
+            text_color=style["text"],
+            font=("Segoe UI", 13, "bold")
+        ).pack(padx=18, pady=12)
+
+        self.toast.place(relx=1, rely=1, anchor="se", x=-24, y=-24)
+        self.toast.lift()
+        self.toast_after_id = self.after(2000, self.hide_toast)
+
+    def hide_toast(self):
+        if self.toast is not None and self.toast.winfo_exists():
+            self.toast.destroy()
+
+        self.toast = None
+        self.toast_after_id = None
 
     def create_master_setup_screen(self):
         self.clear_window()
@@ -578,7 +628,7 @@ class SecurePassApp(ctk.CTk):
         self.load_passwords()
         self.update_dashboard()
 
-        messagebox.showinfo("Saved", "Password saved or updated successfully.")
+        self.show_toast("Password saved or updated successfully.")
 
     def load_passwords(self):
         for widget in self.list_frame.winfo_children():
@@ -730,7 +780,7 @@ class SecurePassApp(ctk.CTk):
     def copy_password(self, password):
         self.clipboard_clear()
         self.clipboard_append(password)
-        messagebox.showinfo("Copied", "Password copied to clipboard.")
+        self.show_toast("Password copied to clipboard.")
 
     def delete_password(self, password_id):
         if not messagebox.askyesno("Delete", "Are you sure you want to delete this password?"):
@@ -739,6 +789,7 @@ class SecurePassApp(ctk.CTk):
         database.delete_password(password_id)
         self.load_passwords()
         self.update_dashboard()
+        self.show_toast("Password deleted successfully.")
 
     def update_strength(self):
         password = self.password_entry.get()
