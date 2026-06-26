@@ -2,6 +2,8 @@ import sqlite3
 import os
 import hashlib
 import binascii
+import base64
+from cryptography.fernet import Fernet, InvalidToken
 
 DB_FILE = "vault.db"
 
@@ -81,6 +83,22 @@ def set_master_password(password):
     conn.close()
 
 
+def get_master_salt():
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT value FROM settings WHERE key = ?", ("master_password",))
+    result = cursor.fetchone()
+
+    conn.close()
+
+    if result is None:
+        return None
+
+    salt_hex, _ = result[0].split(":")
+    return binascii.unhexlify(salt_hex)
+
+
 def verify_master_password(password):
     conn = connect()
     cursor = conn.cursor()
@@ -102,7 +120,37 @@ def verify_master_password(password):
     return entered_hash == stored_hash
 
 
-def add_or_update_password(website, username, password, note, updated_at):
+def create_crypto(master_password):
+    salt = get_master_salt()
+
+    if salt is None:
+        raise ValueError("Master password salt not found.")
+
+    key = hashlib.pbkdf2_hmac(
+        "sha256",
+        master_password.encode("utf-8"),
+        salt,
+        100000
+    )
+
+    fernet_key = base64.urlsafe_b64encode(key)
+    return Fernet(fernet_key)
+
+
+def encrypt_password(crypto, password):
+    return crypto.encrypt(password.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_password(crypto, encrypted_password):
+    try:
+        return crypto.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return "[decryption failed]"
+
+
+def add_or_update_password(website, username, password, note, updated_at, crypto):
+    encrypted_password = encrypt_password(crypto, password)
+
     conn = connect()
     cursor = conn.cursor()
 
@@ -114,13 +162,13 @@ def add_or_update_password(website, username, password, note, updated_at):
             password = excluded.password,
             note = excluded.note,
             updated_at = excluded.updated_at
-    """, (website, username, password, note, updated_at))
+    """, (website, username, encrypted_password, note, updated_at))
 
     conn.commit()
     conn.close()
 
 
-def get_passwords(search_text=""):
+def get_passwords(search_text="", crypto=None):
     conn = connect()
     cursor = conn.cursor()
 
@@ -141,7 +189,22 @@ def get_passwords(search_text=""):
 
     rows = cursor.fetchall()
     conn.close()
-    return rows
+
+    decrypted_rows = []
+
+    for row in rows:
+        password_id, website, username, encrypted_password, note, updated_at = row
+
+        if crypto is None:
+            password = "[locked]"
+        else:
+            password = decrypt_password(crypto, encrypted_password)
+
+        decrypted_rows.append(
+            (password_id, website, username, password, note, updated_at)
+        )
+
+    return decrypted_rows
 
 
 def delete_password(password_id):

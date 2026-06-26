@@ -34,6 +34,7 @@ class SecurePassApp(ctk.CTk):
         self.geometry("1120x700")
         self.minsize(1000, 620)
         self.configure(fg_color=APP_BG)
+        self.crypto = None
 
         if database.has_master_password():
             self.create_unlock_screen()
@@ -48,7 +49,7 @@ class SecurePassApp(ctk.CTk):
         self.clear_window()
         self.configure(fg_color=APP_BG)
 
-        container = ctk.CTkFrame(self, width=430, corner_radius=24, fg_color=CARD_BG)
+        container = ctk.CTkFrame(self, width=430, height=360, corner_radius=24, fg_color=CARD_BG)
         container.pack(expand=True)
         container.pack_propagate(False)
 
@@ -81,6 +82,11 @@ class SecurePassApp(ctk.CTk):
             width=310
         )
         self.confirm_master_entry.pack(pady=8)
+        
+        self.confirm_master_entry.bind(
+            "<Return>",
+            lambda event: self.save_master_password()
+        )
 
         ctk.CTkButton(
             container,
@@ -111,13 +117,14 @@ class SecurePassApp(ctk.CTk):
             return
 
         database.set_master_password(password)
+        self.crypto = database.create_crypto(password)
         self.create_app_layout()
 
     def create_unlock_screen(self):
         self.clear_window()
         self.configure(fg_color=APP_BG)
 
-        container = ctk.CTkFrame(self, width=430, corner_radius=24, fg_color=CARD_BG)
+        container = ctk.CTkFrame(self, width=430, height=300, corner_radius=24, fg_color=CARD_BG)
         container.pack(expand=True)
         container.pack_propagate(False)
 
@@ -160,6 +167,7 @@ class SecurePassApp(ctk.CTk):
         password = self.unlock_password_entry.get().strip()
 
         if database.verify_master_password(password):
+            self.crypto = database.create_crypto(password)
             self.create_app_layout()
         else:
             messagebox.showerror("Access Denied", "Incorrect master password.")
@@ -535,7 +543,14 @@ class SecurePassApp(ctk.CTk):
             messagebox.showerror("Missing Information", "Website, username and password are required.")
             return
 
-        database.add_or_update_password(website, username, password, note, updated_at)
+        database.add_or_update_password(
+            website,
+            username,
+            password,
+            note,
+            updated_at,
+            self.crypto
+        )
 
         self.clear_form()
         self.load_passwords()
@@ -547,7 +562,7 @@ class SecurePassApp(ctk.CTk):
             widget.destroy()
 
         search_text = self.search_entry.get().strip()
-        passwords = database.get_passwords(search_text)
+        passwords = database.get_passwords(search_text, self.crypto)
 
         self.count_label.configure(text=f"{len(passwords)} items")
 
