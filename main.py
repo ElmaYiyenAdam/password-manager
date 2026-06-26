@@ -242,6 +242,9 @@ class SecurePassApp(ctk.CTk):
         self.generator_button = self.create_sidebar_button("Generator", self.show_generator)
         self.generator_button.pack(fill="x", padx=18, pady=6)
 
+        self.settings_button = self.create_sidebar_button("⚙ Settings", self.show_settings)
+        self.settings_button.pack(fill="x", padx=18, pady=6)
+
         self.clear_button = self.create_sidebar_button("Clear Form", self.clear_form)
         self.clear_button.pack(fill="x", padx=18, pady=6)
 
@@ -262,6 +265,7 @@ class SecurePassApp(ctk.CTk):
         self.create_dashboard_view()
         self.create_vault_view()
         self.create_generator_view()
+        self.create_settings_view()
 
         self.show_dashboard()
 
@@ -284,6 +288,7 @@ class SecurePassApp(ctk.CTk):
             "dashboard": self.dashboard_button,
             "vault": self.vault_button,
             "generator": self.generator_button,
+            "settings": self.settings_button,
         }
 
         for name, button in buttons.items():
@@ -576,8 +581,319 @@ class SecurePassApp(ctk.CTk):
             command=self.use_generated_password
         ).pack(side="left")
 
+    def create_settings_view(self):
+        self.settings_view = ctk.CTkScrollableFrame(
+            self.main_area,
+            fg_color="transparent",
+            scrollbar_button_color=CARD_SOFT,
+            scrollbar_button_hover_color="#334155"
+        )
+
+        appearance_card = self.create_settings_card(self.settings_view, "Appearance")
+        appearance_card.pack(fill="x", pady=(0, 24))
+
+        theme_row = self.create_settings_row(
+            appearance_card,
+            "Theme",
+            "Choose the app color preference."
+        )
+        self.theme_var = ctk.StringVar(value="Dark")
+        self.theme_menu = self.create_settings_dropdown(
+            theme_row,
+            ["Dark", "Light", "System"],
+            self.theme_var
+        )
+        self.theme_menu.pack(side="right")
+
+        security_card = self.create_settings_card(self.settings_view, "Security")
+        security_card.pack(fill="x", pady=(0, 24))
+
+        change_password_row = self.create_settings_row(
+            security_card,
+            "Master Password",
+            "Change the password used to unlock your vault."
+        )
+        ctk.CTkButton(
+            change_password_row,
+            text="Change Master Password",
+            width=190,
+            height=40,
+            corner_radius=14,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13, "bold"),
+            command=self.open_change_master_password_modal
+        ).pack(side="right")
+
+        auto_lock_row = self.create_settings_row(
+            security_card,
+            "Auto Lock",
+            "Lock the app after a period of inactivity."
+        )
+        self.auto_lock_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            auto_lock_row,
+            text="",
+            variable=self.auto_lock_var,
+            fg_color=CARD_SOFT,
+            progress_color=ACCENT,
+            button_color=TEXT_SECONDARY,
+            button_hover_color=TEXT_PRIMARY
+        ).pack(side="right")
+
+        timeout_row = self.create_settings_row(
+            security_card,
+            "Timeout",
+            "Choose when auto lock should activate."
+        )
+        self.timeout_var = ctk.StringVar(value="5 minutes")
+        self.timeout_menu = self.create_settings_dropdown(
+            timeout_row,
+            ["1 minute", "5 minutes", "10 minutes", "30 minutes"],
+            self.timeout_var
+        )
+        self.timeout_menu.pack(side="right")
+
+        data_card = self.create_settings_card(self.settings_view, "Data")
+        data_card.pack(fill="x", pady=(0, 24))
+
+        self.create_settings_action_button(data_card, "Export Database")
+        self.create_settings_action_button(data_card, "Import Database")
+        self.create_settings_action_button(data_card, "Create Backup")
+
+        about_card = self.create_settings_card(self.settings_view, "About")
+        about_card.pack(fill="x")
+
+        for item in [
+            "SecurePass",
+            "Version 1.0",
+            "SQLite Database",
+            "Fernet Encryption",
+        ]:
+            self.create_about_item(about_card, item)
+
+    def create_settings_card(self, parent, title):
+        card = ctk.CTkFrame(parent, corner_radius=24, fg_color=CARD_BG)
+
+        ctk.CTkLabel(
+            card,
+            text=title,
+            font=("Segoe UI", 23, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=26, pady=(24, 18))
+
+        return card
+
+    def create_settings_row(self, parent, title, description):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=26, pady=(0, 18))
+
+        text_frame = ctk.CTkFrame(row, fg_color="transparent")
+        text_frame.pack(side="left", fill="x", expand=True, padx=(0, 18))
+
+        ctk.CTkLabel(
+            text_frame,
+            text=title,
+            font=("Segoe UI", 14, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            text_frame,
+            text=description,
+            font=("Segoe UI", 12),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", pady=(4, 0))
+
+        return row
+
+    def create_settings_dropdown(self, parent, values, variable):
+        return ctk.CTkOptionMenu(
+            parent,
+            values=values,
+            variable=variable,
+            width=150,
+            height=40,
+            corner_radius=14,
+            fg_color=INPUT_BG,
+            button_color=ACCENT,
+            button_hover_color=ACCENT_HOVER,
+            dropdown_fg_color=CARD_SOFT,
+            dropdown_hover_color="#334155",
+            dropdown_text_color=TEXT_PRIMARY,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13)
+        )
+
+    def create_settings_action_button(self, parent, text):
+        ctk.CTkButton(
+            parent,
+            text=text,
+            height=44,
+            corner_radius=14,
+            fg_color=CARD_SOFT,
+            hover_color="#334155",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13, "bold"),
+            command=self.show_coming_soon
+        ).pack(fill="x", padx=26, pady=(0, 14))
+
+    def create_about_item(self, parent, text):
+        item = ctk.CTkFrame(parent, height=42, corner_radius=14, fg_color=CARD_SOFT)
+        item.pack(fill="x", padx=26, pady=(0, 12))
+        item.pack_propagate(False)
+
+        ctk.CTkLabel(
+            item,
+            text=text,
+            font=("Segoe UI", 13, "bold"),
+            text_color=TEXT_SECONDARY
+        ).pack(side="left", padx=16)
+
+    def show_coming_soon(self):
+        self.show_toast("Coming soon")
+
+    def open_change_master_password_modal(self):
+        if hasattr(self, "change_password_modal") and self.change_password_modal.winfo_exists():
+            self.change_password_modal.focus()
+            return
+
+        modal_width = 430
+        modal_height = 390
+
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - modal_width) // 2
+        y = self.winfo_y() + (self.winfo_height() - modal_height) // 2
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Change Master Password")
+        modal.geometry(f"{modal_width}x{modal_height}+{max(x, 0)}+{max(y, 0)}")
+        modal.resizable(False, False)
+        modal.configure(fg_color=APP_BG)
+        modal.transient(self)
+        modal.grab_set()
+        self.change_password_modal = modal
+
+        card = ctk.CTkFrame(modal, corner_radius=24, fg_color=CARD_BG)
+        card.pack(fill="both", expand=True, padx=24, pady=24)
+
+        ctk.CTkLabel(
+            card,
+            text="Change Master Password",
+            font=("Segoe UI", 23, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=26, pady=(26, 6))
+
+        ctk.CTkLabel(
+            card,
+            text="Your saved passwords will stay encrypted with the new key.",
+            font=("Segoe UI", 12),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=26, pady=(0, 18))
+
+        current_entry = self.create_input(card, "Current Master Password", show="•")
+        current_entry.pack(fill="x", padx=26, pady=7)
+
+        new_entry = self.create_input(card, "New Master Password", show="•")
+        new_entry.pack(fill="x", padx=26, pady=7)
+
+        confirm_entry = self.create_input(card, "Confirm New Master Password", show="•")
+        confirm_entry.pack(fill="x", padx=26, pady=7)
+
+        def submit_change():
+            self.change_master_password(
+                current_entry.get().strip(),
+                new_entry.get().strip(),
+                confirm_entry.get().strip(),
+                modal
+            )
+
+        for entry in [current_entry, new_entry, confirm_entry]:
+            entry.bind("<Return>", lambda event: submit_change())
+
+        button_row = ctk.CTkFrame(card, fg_color="transparent")
+        button_row.pack(fill="x", padx=26, pady=(24, 0))
+
+        ctk.CTkButton(
+            button_row,
+            text="Cancel",
+            width=118,
+            height=42,
+            corner_radius=14,
+            fg_color=CARD_SOFT,
+            hover_color="#334155",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13, "bold"),
+            command=modal.destroy
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            button_row,
+            text="Change Password",
+            width=180,
+            height=42,
+            corner_radius=14,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13, "bold"),
+            command=submit_change
+        ).pack(side="right")
+
+        current_entry.focus_set()
+
+    def change_master_password(self, current_password, new_password, confirm_password, modal):
+        if not current_password or not new_password or not confirm_password:
+            messagebox.showerror("Missing Information", "Please fill all fields.", parent=modal)
+            return
+
+        if len(new_password) < 6:
+            messagebox.showerror("Weak Password", "New master password must be at least 6 characters.", parent=modal)
+            return
+
+        if new_password != confirm_password:
+            messagebox.showerror("Password Mismatch", "New master password and confirmation do not match.", parent=modal)
+            return
+
+        if not database.verify_master_password(current_password):
+            messagebox.showerror("Access Denied", "Current master password is incorrect.", parent=modal)
+            return
+
+        try:
+            old_crypto = database.create_crypto(current_password)
+            encrypted_rows = database.get_encrypted_password_rows()
+
+            decrypted_rows = []
+            for row in encrypted_rows:
+                password_id, website, username, encrypted_password, note, updated_at = row
+                password = database.decrypt_password_strict(old_crypto, encrypted_password)
+                decrypted_rows.append((password_id, website, username, password, note, updated_at))
+
+            master_password_value, new_crypto = database.create_master_password_value_and_crypto(new_password)
+
+            reencrypted_rows = []
+            for password_id, website, username, password, note, updated_at in decrypted_rows:
+                encrypted_password = database.encrypt_password(new_crypto, password)
+                reencrypted_rows.append((password_id, website, username, encrypted_password, note, updated_at))
+
+            database.replace_master_password_and_password_rows(master_password_value, reencrypted_rows)
+        except Exception:
+            messagebox.showerror(
+                "Change Failed",
+                "Unable to change master password. Existing vault data was left unchanged.",
+                parent=modal
+            )
+            return
+
+        self.crypto = new_crypto
+        modal.destroy()
+        self.load_passwords()
+        self.update_dashboard()
+        self.show_toast("Master password changed successfully.")
+
     def hide_all_views(self):
-        for view_name in ["dashboard_view", "vault_view", "generator_view"]:
+        for view_name in ["dashboard_view", "vault_view", "generator_view", "settings_view"]:
             if hasattr(self, view_name):
                 getattr(self, view_name).pack_forget()
 
@@ -606,6 +922,13 @@ class SecurePassApp(ctk.CTk):
         self.page_title.configure(text="Generator")
         self.search_entry.pack_forget()
         self.set_active_nav("generator")
+
+    def show_settings(self):
+        self.hide_all_views()
+        self.settings_view.pack(fill="both", expand=True, padx=34, pady=22)
+        self.page_title.configure(text="Settings")
+        self.search_entry.pack_forget()
+        self.set_active_nav("settings")
 
     def save_password(self):
         if self.editing_password_id is not None:

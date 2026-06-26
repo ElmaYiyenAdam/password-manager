@@ -83,6 +83,13 @@ def set_master_password(password):
     conn.close()
 
 
+def create_master_password_value_and_crypto(password):
+    salt_hex, password_hash = hash_master_password(password)
+    salt = binascii.unhexlify(salt_hex)
+
+    return f"{salt_hex}:{password_hash}", create_crypto(password, salt)
+
+
 def get_master_salt():
     conn = connect()
     cursor = conn.cursor()
@@ -120,8 +127,9 @@ def verify_master_password(password):
     return entered_hash == stored_hash
 
 
-def create_crypto(master_password):
-    salt = get_master_salt()
+def create_crypto(master_password, salt=None):
+    if salt is None:
+        salt = get_master_salt()
 
     if salt is None:
         raise ValueError("Master password salt not found.")
@@ -146,6 +154,10 @@ def decrypt_password(crypto, encrypted_password):
         return crypto.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
     except InvalidToken:
         return "[decryption failed]"
+
+
+def decrypt_password_strict(crypto, encrypted_password):
+    return crypto.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
 
 
 def add_or_update_password(website, username, password, note, updated_at, crypto):
@@ -205,6 +217,45 @@ def get_passwords(search_text="", crypto=None):
         )
 
     return decrypted_rows
+
+
+def get_encrypted_password_rows():
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, website, username, password, note, updated_at
+        FROM passwords
+        ORDER BY id
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def replace_master_password_and_password_rows(master_password_value, rows):
+    conn = connect()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES (?, ?)
+        """, ("master_password", master_password_value))
+
+        cursor.execute("DELETE FROM passwords")
+        cursor.executemany("""
+            INSERT INTO passwords (id, website, username, password, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, rows)
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def delete_password(password_id):
