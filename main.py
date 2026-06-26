@@ -3,6 +3,7 @@ from tkinter import messagebox
 import random
 import string
 from datetime import datetime
+from collections import Counter
 import database
 
 ctk.set_appearance_mode("dark")
@@ -53,40 +54,15 @@ class SecurePassApp(ctk.CTk):
         container.pack(expand=True)
         container.pack_propagate(False)
 
-        ctk.CTkLabel(
-            container,
-            text="SecurePass",
-            font=("Segoe UI", 32, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(pady=(45, 6))
+        ctk.CTkLabel(container, text="SecurePass", font=("Segoe UI", 32, "bold"), text_color=TEXT_PRIMARY).pack(pady=(45, 6))
+        ctk.CTkLabel(container, text="Create your master password", font=("Segoe UI", 14), text_color=TEXT_SECONDARY).pack(pady=(0, 28))
 
-        ctk.CTkLabel(
-            container,
-            text="Create your master password",
-            font=("Segoe UI", 14),
-            text_color=TEXT_SECONDARY
-        ).pack(pady=(0, 28))
-
-        self.master_password_entry = self.create_input(
-            container,
-            "Master Password",
-            show="•",
-            width=310
-        )
+        self.master_password_entry = self.create_input(container, "Master Password", show="•", width=310)
         self.master_password_entry.pack(pady=8)
 
-        self.confirm_master_entry = self.create_input(
-            container,
-            "Confirm Master Password",
-            show="•",
-            width=310
-        )
+        self.confirm_master_entry = self.create_input(container, "Confirm Master Password", show="•", width=310)
         self.confirm_master_entry.pack(pady=8)
-        
-        self.confirm_master_entry.bind(
-            "<Return>",
-            lambda event: self.save_master_password()
-        )
+        self.confirm_master_entry.bind("<Return>", lambda event: self.save_master_password())
 
         ctk.CTkButton(
             container,
@@ -128,26 +104,10 @@ class SecurePassApp(ctk.CTk):
         container.pack(expand=True)
         container.pack_propagate(False)
 
-        ctk.CTkLabel(
-            container,
-            text="SecurePass",
-            font=("Segoe UI", 34, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(pady=(55, 8))
+        ctk.CTkLabel(container, text="SecurePass", font=("Segoe UI", 34, "bold"), text_color=TEXT_PRIMARY).pack(pady=(55, 8))
+        ctk.CTkLabel(container, text="Unlock your password vault", font=("Segoe UI", 14), text_color=TEXT_SECONDARY).pack(pady=(0, 30))
 
-        ctk.CTkLabel(
-            container,
-            text="Unlock your password vault",
-            font=("Segoe UI", 14),
-            text_color=TEXT_SECONDARY
-        ).pack(pady=(0, 30))
-
-        self.unlock_password_entry = self.create_input(
-            container,
-            "Master Password",
-            show="•",
-            width=310
-        )
+        self.unlock_password_entry = self.create_input(container, "Master Password", show="•", width=310)
         self.unlock_password_entry.pack(pady=8)
         self.unlock_password_entry.bind("<Return>", lambda event: self.unlock_vault())
 
@@ -176,28 +136,15 @@ class SecurePassApp(ctk.CTk):
         self.clear_window()
         self.configure(fg_color=APP_BG)
 
-        self.sidebar = ctk.CTkFrame(
-            self,
-            width=250,
-            corner_radius=0,
-            fg_color=SIDEBAR_BG
-        )
+        self.sidebar = ctk.CTkFrame(self, width=250, corner_radius=0, fg_color=SIDEBAR_BG)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
-        ctk.CTkLabel(
-            self.sidebar,
-            text="SecurePass",
-            font=("Segoe UI", 27, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(anchor="w", padx=26, pady=(32, 4))
+        ctk.CTkLabel(self.sidebar, text="SecurePass", font=("Segoe UI", 27, "bold"), text_color=TEXT_PRIMARY).pack(anchor="w", padx=26, pady=(32, 4))
+        ctk.CTkLabel(self.sidebar, text="Password Manager", font=("Segoe UI", 13), text_color=TEXT_MUTED).pack(anchor="w", padx=26, pady=(0, 34))
 
-        ctk.CTkLabel(
-            self.sidebar,
-            text="Password Manager",
-            font=("Segoe UI", 13),
-            text_color=TEXT_MUTED
-        ).pack(anchor="w", padx=26, pady=(0, 34))
+        self.dashboard_button = self.create_sidebar_button("Dashboard", self.show_dashboard)
+        self.dashboard_button.pack(fill="x", padx=18, pady=6)
 
         self.vault_button = self.create_sidebar_button("Vault", self.show_vault)
         self.vault_button.pack(fill="x", padx=18, pady=6)
@@ -208,44 +155,25 @@ class SecurePassApp(ctk.CTk):
         self.clear_button = self.create_sidebar_button("Clear Form", self.clear_form)
         self.clear_button.pack(fill="x", padx=18, pady=6)
 
-        ctk.CTkLabel(
-            self.sidebar,
-            text="SQLite • Local Vault",
-            text_color=TEXT_MUTED,
-            font=("Segoe UI", 12)
-        ).pack(side="bottom", pady=26)
+        ctk.CTkLabel(self.sidebar, text="SQLite • Encrypted Vault", text_color=TEXT_MUTED, font=("Segoe UI", 12)).pack(side="bottom", pady=26)
 
-        self.main_area = ctk.CTkFrame(
-            self,
-            corner_radius=0,
-            fg_color=APP_BG
-        )
+        self.main_area = ctk.CTkFrame(self, corner_radius=0, fg_color=APP_BG)
         self.main_area.pack(side="right", fill="both", expand=True)
 
         self.header_frame = ctk.CTkFrame(self.main_area, fg_color="transparent")
         self.header_frame.pack(fill="x", padx=34, pady=(28, 10))
 
-        self.page_title = ctk.CTkLabel(
-            self.header_frame,
-            text="Vault",
-            font=("Segoe UI", 32, "bold"),
-            text_color=TEXT_PRIMARY
-        )
+        self.page_title = ctk.CTkLabel(self.header_frame, text="Dashboard", font=("Segoe UI", 32, "bold"), text_color=TEXT_PRIMARY)
         self.page_title.pack(side="left")
 
-        self.search_entry = self.create_input(
-            self.header_frame,
-            "Search website, username or note...",
-            width=330
-        )
-        self.search_entry.pack(side="right")
+        self.search_entry = self.create_input(self.header_frame, "Search website, username or note...", width=330)
         self.search_entry.bind("<KeyRelease>", lambda event: self.load_passwords())
 
+        self.create_dashboard_view()
         self.create_vault_view()
         self.create_generator_view()
 
-        self.show_vault()
-        self.load_passwords()
+        self.show_dashboard()
 
     def create_sidebar_button(self, text, command):
         return ctk.CTkButton(
@@ -262,17 +190,18 @@ class SecurePassApp(ctk.CTk):
         )
 
     def set_active_nav(self, active):
-        self.vault_button.configure(
-            fg_color=ACCENT if active == "vault" else "transparent",
-            hover_color=ACCENT_HOVER if active == "vault" else CARD_SOFT,
-            text_color=TEXT_PRIMARY if active == "vault" else TEXT_SECONDARY
-        )
+        buttons = {
+            "dashboard": self.dashboard_button,
+            "vault": self.vault_button,
+            "generator": self.generator_button,
+        }
 
-        self.generator_button.configure(
-            fg_color=ACCENT if active == "generator" else "transparent",
-            hover_color=ACCENT_HOVER if active == "generator" else CARD_SOFT,
-            text_color=TEXT_PRIMARY if active == "generator" else TEXT_SECONDARY
-        )
+        for name, button in buttons.items():
+            button.configure(
+                fg_color=ACCENT if active == name else "transparent",
+                hover_color=ACCENT_HOVER if active == name else CARD_SOFT,
+                text_color=TEXT_PRIMARY if active == name else TEXT_SECONDARY
+            )
 
     def create_input(self, parent, placeholder, show=None, width=240):
         return ctk.CTkEntry(
@@ -303,31 +232,145 @@ class SecurePassApp(ctk.CTk):
             command=command
         )
 
+    def create_dashboard_view(self):
+        self.dashboard_view = ctk.CTkFrame(self.main_area, fg_color="transparent")
+
+        top = ctk.CTkFrame(self.dashboard_view, fg_color="transparent")
+        top.pack(fill="x")
+
+        self.total_card = self.create_stat_card(top, "Total Passwords", "0", "#60a5fa")
+        self.total_card.pack(side="left", fill="both", expand=True, padx=(0, 14))
+
+        self.strong_card = self.create_stat_card(top, "Strong", "0", "#22c55e")
+        self.strong_card.pack(side="left", fill="both", expand=True, padx=7)
+
+        self.weak_card = self.create_stat_card(top, "Weak", "0", "#ef4444")
+        self.weak_card.pack(side="left", fill="both", expand=True, padx=7)
+
+        self.reused_card = self.create_stat_card(top, "Reused", "0", "#f59e0b")
+        self.reused_card.pack(side="left", fill="both", expand=True, padx=(14, 0))
+
+        bottom = ctk.CTkFrame(self.dashboard_view, corner_radius=24, fg_color=CARD_BG)
+        bottom.pack(fill="both", expand=True, pady=(24, 0))
+
+        ctk.CTkLabel(
+            bottom,
+            text="Vault Overview",
+            font=("Segoe UI", 23, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=26, pady=(24, 6))
+
+        ctk.CTkLabel(
+            bottom,
+            text="A quick summary of your saved passwords and security health.",
+            font=("Segoe UI", 13),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=26, pady=(0, 24))
+
+        self.dashboard_summary_frame = ctk.CTkFrame(bottom, fg_color="transparent")
+        self.dashboard_summary_frame.pack(fill="both", expand=True, padx=26, pady=(0, 24))
+
+    def create_stat_card(self, parent, title, value, accent_color):
+        card = ctk.CTkFrame(parent, height=130, corner_radius=24, fg_color=CARD_BG)
+        card.pack_propagate(False)
+
+        ctk.CTkLabel(
+            card,
+            text=title,
+            font=("Segoe UI", 13, "bold"),
+            text_color=TEXT_SECONDARY
+        ).pack(anchor="w", padx=22, pady=(22, 4))
+
+        value_label = ctk.CTkLabel(
+            card,
+            text=value,
+            font=("Segoe UI", 34, "bold"),
+            text_color=TEXT_PRIMARY
+        )
+        value_label.pack(anchor="w", padx=22)
+
+        ctk.CTkFrame(card, height=4, fg_color=accent_color, corner_radius=20).pack(fill="x", padx=22, pady=(16, 0))
+
+        card.value_label = value_label
+        return card
+
+    def update_dashboard(self):
+        rows = database.get_passwords("", self.crypto)
+
+        total = len(rows)
+        strong = 0
+        weak = 0
+
+        plain_passwords = []
+
+        for row in rows:
+            _, _, _, password, _, _ = row
+
+            if password == "[decryption failed]" or password == "[locked]":
+                continue
+
+            plain_passwords.append(password)
+
+            score = self.calculate_strength(password)
+            if score >= 4:
+                strong += 1
+            elif score <= 2:
+                weak += 1
+
+        counts = Counter(plain_passwords)
+        reused = sum(1 for password in plain_passwords if counts[password] > 1)
+
+        self.total_card.value_label.configure(text=str(total))
+        self.strong_card.value_label.configure(text=str(strong))
+        self.weak_card.value_label.configure(text=str(weak))
+        self.reused_card.value_label.configure(text=str(reused))
+
+        for widget in self.dashboard_summary_frame.winfo_children():
+            widget.destroy()
+
+        if total == 0:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text="No passwords saved yet. Add your first password from the Vault page.",
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 15)
+            ).pack(anchor="w", pady=10)
+            return
+
+        security_text = "Your vault looks healthy."
+        security_color = "#22c55e"
+
+        if weak > 0 or reused > 0:
+            security_text = "Some passwords need attention."
+            security_color = "#f59e0b"
+
+        if weak >= 3 or reused >= 3:
+            security_text = "Your vault has multiple security warnings."
+            security_color = "#ef4444"
+
+        ctk.CTkLabel(
+            self.dashboard_summary_frame,
+            text=security_text,
+            text_color=security_color,
+            font=("Segoe UI", 20, "bold")
+        ).pack(anchor="w", pady=(0, 12))
+
+        ctk.CTkLabel(
+            self.dashboard_summary_frame,
+            text=f"{strong} strong passwords, {weak} weak passwords, {reused} reused password entries.",
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 14)
+        ).pack(anchor="w")
+
     def create_vault_view(self):
         self.vault_view = ctk.CTkFrame(self.main_area, fg_color="transparent")
 
-        self.form_frame = ctk.CTkFrame(
-            self.vault_view,
-            width=360,
-            corner_radius=24,
-            fg_color=CARD_BG
-        )
+        self.form_frame = ctk.CTkFrame(self.vault_view, width=360, corner_radius=24, fg_color=CARD_BG)
         self.form_frame.pack(side="left", fill="y", padx=(0, 22))
         self.form_frame.pack_propagate(False)
 
-        ctk.CTkLabel(
-            self.form_frame,
-            text="Add Password",
-            font=("Segoe UI", 23, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(anchor="w", padx=26, pady=(26, 6))
-
-        ctk.CTkLabel(
-            self.form_frame,
-            text="Save or update an account",
-            font=("Segoe UI", 13),
-            text_color=TEXT_MUTED
-        ).pack(anchor="w", padx=26, pady=(0, 22))
+        ctk.CTkLabel(self.form_frame, text="Add Password", font=("Segoe UI", 23, "bold"), text_color=TEXT_PRIMARY).pack(anchor="w", padx=26, pady=(26, 6))
+        ctk.CTkLabel(self.form_frame, text="Save or update an account", font=("Segoe UI", 13), text_color=TEXT_MUTED).pack(anchor="w", padx=26, pady=(0, 22))
 
         self.website_entry = self.create_input(self.form_frame, "Website")
         self.website_entry.pack(fill="x", padx=26, pady=8)
@@ -339,30 +382,17 @@ class SecurePassApp(ctk.CTk):
         self.password_entry.pack(fill="x", padx=26, pady=8)
         self.password_entry.bind("<KeyRelease>", lambda event: self.update_strength())
 
-        self.strength_label = ctk.CTkLabel(
-            self.form_frame,
-            text="Strength: -",
-            text_color=TEXT_MUTED,
-            font=("Segoe UI", 12)
-        )
+        self.strength_label = ctk.CTkLabel(self.form_frame, text="Strength: -", text_color=TEXT_MUTED, font=("Segoe UI", 12))
         self.strength_label.pack(anchor="w", padx=26, pady=(4, 4))
 
-        self.strength_bar = ctk.CTkProgressBar(
-            self.form_frame,
-            height=8,
-            progress_color=ACCENT
-        )
+        self.strength_bar = ctk.CTkProgressBar(self.form_frame, height=8, progress_color=ACCENT)
         self.strength_bar.pack(fill="x", padx=26, pady=(0, 10))
         self.strength_bar.set(0)
 
         self.note_entry = self.create_input(self.form_frame, "Note")
         self.note_entry.pack(fill="x", padx=26, pady=8)
 
-        self.save_button = self.create_primary_button(
-            self.form_frame,
-            "Save / Update",
-            self.save_password
-        )
+        self.save_button = self.create_primary_button(self.form_frame, "Save / Update", self.save_password)
         self.save_button.pack(fill="x", padx=26, pady=(24, 10))
 
         self.generate_button = ctk.CTkButton(
@@ -378,29 +408,15 @@ class SecurePassApp(ctk.CTk):
         )
         self.generate_button.pack(fill="x", padx=26, pady=8)
 
-        self.table_frame = ctk.CTkFrame(
-            self.vault_view,
-            corner_radius=24,
-            fg_color=CARD_BG
-        )
+        self.table_frame = ctk.CTkFrame(self.vault_view, corner_radius=24, fg_color=CARD_BG)
         self.table_frame.pack(side="right", fill="both", expand=True)
 
         self.table_header = ctk.CTkFrame(self.table_frame, fg_color="transparent")
         self.table_header.pack(fill="x", padx=24, pady=(24, 8))
 
-        ctk.CTkLabel(
-            self.table_header,
-            text="Saved Passwords",
-            font=("Segoe UI", 23, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(side="left")
+        ctk.CTkLabel(self.table_header, text="Saved Passwords", font=("Segoe UI", 23, "bold"), text_color=TEXT_PRIMARY).pack(side="left")
 
-        self.count_label = ctk.CTkLabel(
-            self.table_header,
-            text="0 items",
-            font=("Segoe UI", 13),
-            text_color=TEXT_MUTED
-        )
+        self.count_label = ctk.CTkLabel(self.table_header, text="0 items", font=("Segoe UI", 13), text_color=TEXT_MUTED)
         self.count_label.pack(side="right")
 
         self.list_frame = ctk.CTkScrollableFrame(
@@ -414,40 +430,17 @@ class SecurePassApp(ctk.CTk):
     def create_generator_view(self):
         self.generator_view = ctk.CTkFrame(self.main_area, fg_color="transparent")
 
-        card = ctk.CTkFrame(
-            self.generator_view,
-            corner_radius=24,
-            fg_color=CARD_BG
-        )
+        card = ctk.CTkFrame(self.generator_view, corner_radius=24, fg_color=CARD_BG)
         card.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(
-            card,
-            text="Password Generator",
-            font=("Segoe UI", 30, "bold"),
-            text_color=TEXT_PRIMARY
-        ).pack(anchor="w", padx=34, pady=(34, 8))
+        ctk.CTkLabel(card, text="Password Generator", font=("Segoe UI", 30, "bold"), text_color=TEXT_PRIMARY).pack(anchor="w", padx=34, pady=(34, 8))
+        ctk.CTkLabel(card, text="Generate strong passwords and send them directly to your vault form.", text_color=TEXT_SECONDARY, font=("Segoe UI", 14)).pack(anchor="w", padx=34, pady=(0, 28))
 
-        ctk.CTkLabel(
-            card,
-            text="Generate strong passwords and send them directly to your vault form.",
-            text_color=TEXT_SECONDARY,
-            font=("Segoe UI", 14)
-        ).pack(anchor="w", padx=34, pady=(0, 28))
-
-        self.generated_password_entry = self.create_input(
-            card,
-            "Generated password will appear here"
-        )
+        self.generated_password_entry = self.create_input(card, "Generated password will appear here")
         self.generated_password_entry.configure(font=("Segoe UI", 18))
         self.generated_password_entry.pack(fill="x", padx=34, pady=(0, 26))
 
-        self.length_label = ctk.CTkLabel(
-            card,
-            text="Length: 16",
-            font=("Segoe UI", 14, "bold"),
-            text_color=TEXT_PRIMARY
-        )
+        self.length_label = ctk.CTkLabel(card, text="Length: 16", font=("Segoe UI", 14, "bold"), text_color=TEXT_PRIMARY)
         self.length_label.pack(anchor="w", padx=34)
 
         self.length_slider = ctk.CTkSlider(
@@ -470,28 +463,13 @@ class SecurePassApp(ctk.CTk):
         self.digits_var = ctk.BooleanVar(value=True)
         self.symbols_var = ctk.BooleanVar(value=True)
 
-        for text, var in [
-            ("Uppercase letters", self.uppercase_var),
-            ("Numbers", self.digits_var),
-            ("Symbols", self.symbols_var)
-        ]:
-            ctk.CTkCheckBox(
-                options,
-                text=text,
-                variable=var,
-                fg_color=ACCENT,
-                hover_color=ACCENT_HOVER,
-                text_color=TEXT_SECONDARY
-            ).pack(anchor="w", pady=7)
+        for text, var in [("Uppercase letters", self.uppercase_var), ("Numbers", self.digits_var), ("Symbols", self.symbols_var)]:
+            ctk.CTkCheckBox(options, text=text, variable=var, fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color=TEXT_SECONDARY).pack(anchor="w", pady=7)
 
         btns = ctk.CTkFrame(card, fg_color="transparent")
         btns.pack(fill="x", padx=34, pady=16)
 
-        self.create_primary_button(
-            btns,
-            "Generate",
-            self.generate_password_for_generator_page
-        ).pack(side="left", padx=(0, 12))
+        self.create_primary_button(btns, "Generate", self.generate_password_for_generator_page).pack(side="left", padx=(0, 12))
 
         ctk.CTkButton(
             btns,
@@ -505,29 +483,33 @@ class SecurePassApp(ctk.CTk):
             command=self.use_generated_password
         ).pack(side="left")
 
+    def hide_all_views(self):
+        for view_name in ["dashboard_view", "vault_view", "generator_view"]:
+            if hasattr(self, view_name):
+                getattr(self, view_name).pack_forget()
+
+    def show_dashboard(self):
+        self.hide_all_views()
+        self.dashboard_view.pack(fill="both", expand=True, padx=34, pady=22)
+        self.page_title.configure(text="Dashboard")
+        self.search_entry.pack_forget()
+        self.set_active_nav("dashboard")
+        self.update_dashboard()
+
     def show_vault(self):
-        if hasattr(self, "generator_view"):
-            self.generator_view.pack_forget()
-
-        if hasattr(self, "vault_view"):
-            self.vault_view.pack_forget()
-            self.vault_view.pack(fill="both", expand=True, padx=34, pady=22)
-
+        self.hide_all_views()
+        self.vault_view.pack(fill="both", expand=True, padx=34, pady=22)
         self.page_title.configure(text="Vault")
 
         if not self.search_entry.winfo_ismapped():
             self.search_entry.pack(side="right")
 
         self.set_active_nav("vault")
+        self.load_passwords()
 
     def show_generator(self):
-        if hasattr(self, "vault_view"):
-            self.vault_view.pack_forget()
-
-        if hasattr(self, "generator_view"):
-            self.generator_view.pack_forget()
-            self.generator_view.pack(fill="both", expand=True, padx=34, pady=22)
-
+        self.hide_all_views()
+        self.generator_view.pack(fill="both", expand=True, padx=34, pady=22)
         self.page_title.configure(text="Generator")
         self.search_entry.pack_forget()
         self.set_active_nav("generator")
@@ -543,17 +525,11 @@ class SecurePassApp(ctk.CTk):
             messagebox.showerror("Missing Information", "Website, username and password are required.")
             return
 
-        database.add_or_update_password(
-            website,
-            username,
-            password,
-            note,
-            updated_at,
-            self.crypto
-        )
+        database.add_or_update_password(website, username, password, note, updated_at, self.crypto)
 
         self.clear_form()
         self.load_passwords()
+        self.update_dashboard()
 
         messagebox.showinfo("Saved", "Password saved or updated successfully.")
 
@@ -567,12 +543,7 @@ class SecurePassApp(ctk.CTk):
         self.count_label.configure(text=f"{len(passwords)} items")
 
         if not passwords:
-            ctk.CTkLabel(
-                self.list_frame,
-                text="No passwords found.",
-                text_color=TEXT_MUTED,
-                font=("Segoe UI", 14)
-            ).pack(pady=36)
+            ctk.CTkLabel(self.list_frame, text="No passwords found.", text_color=TEXT_MUTED, font=("Segoe UI", 14)).pack(pady=36)
             return
 
         for item in passwords:
@@ -581,58 +552,23 @@ class SecurePassApp(ctk.CTk):
     def create_password_card(self, item):
         password_id, website, username, password, note, updated_at = item
 
-        card = ctk.CTkFrame(
-            self.list_frame,
-            corner_radius=20,
-            fg_color=CARD_SOFT
-        )
+        card = ctk.CTkFrame(self.list_frame, corner_radius=20, fg_color=CARD_SOFT)
         card.pack(fill="x", pady=9, padx=6)
 
         left = ctk.CTkFrame(card, fg_color="transparent")
         left.pack(side="left", fill="both", expand=True, padx=20, pady=16)
 
-        ctk.CTkLabel(
-            left,
-            text=website,
-            font=("Segoe UI", 18, "bold"),
-            text_color=TEXT_PRIMARY,
-            anchor="w"
-        ).pack(anchor="w")
+        ctk.CTkLabel(left, text=website, font=("Segoe UI", 18, "bold"), text_color=TEXT_PRIMARY, anchor="w").pack(anchor="w")
+        ctk.CTkLabel(left, text=username, text_color=TEXT_SECONDARY, font=("Segoe UI", 13), anchor="w").pack(anchor="w", pady=(6, 0))
 
-        ctk.CTkLabel(
-            left,
-            text=username,
-            text_color=TEXT_SECONDARY,
-            font=("Segoe UI", 13),
-            anchor="w"
-        ).pack(anchor="w", pady=(6, 0))
-
-        password_label = ctk.CTkLabel(
-            left,
-            text="•" * len(password),
-            text_color=TEXT_MUTED,
-            font=("Segoe UI", 13),
-            anchor="w"
-        )
+        password_label = ctk.CTkLabel(left, text="•" * len(password), text_color=TEXT_MUTED, font=("Segoe UI", 13), anchor="w")
         password_label.pack(anchor="w", pady=(6, 0))
 
         if note:
-            ctk.CTkLabel(
-                left,
-                text=note,
-                text_color=TEXT_MUTED,
-                font=("Segoe UI", 12),
-                anchor="w"
-            ).pack(anchor="w", pady=(6, 0))
+            ctk.CTkLabel(left, text=note, text_color=TEXT_MUTED, font=("Segoe UI", 12), anchor="w").pack(anchor="w", pady=(6, 0))
 
         if updated_at:
-            ctk.CTkLabel(
-                left,
-                text=f"Updated {updated_at}",
-                text_color=TEXT_MUTED,
-                font=("Segoe UI", 12),
-                anchor="w"
-            ).pack(anchor="w", pady=(6, 0))
+            ctk.CTkLabel(left, text=f"Updated {updated_at}", text_color=TEXT_MUTED, font=("Segoe UI", 12), anchor="w").pack(anchor="w", pady=(6, 0))
 
         right = ctk.CTkFrame(card, fg_color="transparent")
         right.pack(side="right", padx=18, pady=12)
@@ -647,9 +583,7 @@ class SecurePassApp(ctk.CTk):
             hover_color="#475569",
             text_color=TEXT_PRIMARY
         )
-        show_button.configure(
-            command=lambda: self.toggle_password(password_label, password, show_button)
-        )
+        show_button.configure(command=lambda: self.toggle_password(password_label, password, show_button))
         show_button.pack(pady=4)
 
         ctk.CTkButton(
@@ -695,6 +629,7 @@ class SecurePassApp(ctk.CTk):
 
         database.delete_password(password_id)
         self.load_passwords()
+        self.update_dashboard()
 
     def update_strength(self):
         password = self.password_entry.get()
