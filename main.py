@@ -19,9 +19,10 @@ class SecurePassApp(ctk.CTk):
         self.geometry("1100x680")
         self.minsize(1000, 620)
 
-        self.create_layout()
-        self.load_passwords()
-        self.show_vault()
+        if database.has_master_password():
+            self.create_unlock_screen()
+        else:
+            self.create_master_setup_screen()
 
     def create_layout(self):
         self.sidebar = ctk.CTkFrame(self, width=230, corner_radius=0)
@@ -550,6 +551,135 @@ class SecurePassApp(ctk.CTk):
         self.strength_label.configure(text="Strength: -", text_color="#9ca3af")
 
         self.focus()
+
+    def clear_window(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
+
+    def create_master_setup_screen(self):
+        self.clear_window()
+
+        container = ctk.CTkFrame(self, corner_radius=20)
+        container.pack(expand=True)
+
+        title = ctk.CTkLabel(
+            container,
+            text="Create Master Password",
+            font=("Segoe UI", 28, "bold")
+        )
+        title.pack(padx=50, pady=(40, 10))
+
+        subtitle = ctk.CTkLabel(
+            container,
+            text="This password will protect your vault.",
+            text_color="#9ca3af"
+        )
+        subtitle.pack(pady=(0, 25))
+
+        self.master_password_entry = ctk.CTkEntry(
+            container,
+            placeholder_text="Master Password",
+            show="•",
+            width=300,
+            height=42
+        )
+        self.master_password_entry.pack(pady=8)
+
+        self.confirm_master_entry = ctk.CTkEntry(
+            container,
+            placeholder_text="Confirm Master Password",
+            show="•",
+            width=300,
+            height=42
+        )
+        self.confirm_master_entry.pack(pady=8)
+
+        create_button = ctk.CTkButton(
+            container,
+            text="Create Vault",
+            width=300,
+            height=44,
+            command=self.save_master_password
+        )
+        create_button.pack(pady=(25, 40))
+
+
+    def save_master_password(self):
+        password = self.master_password_entry.get().strip()
+        confirm = self.confirm_master_entry.get().strip()
+
+        if not password or not confirm:
+            messagebox.showerror("Error", "Please fill both fields.")
+            return
+
+        if len(password) < 6:
+            messagebox.showerror("Weak Password", "Master password must be at least 6 characters.")
+            return
+
+        if password != confirm:
+            messagebox.showerror("Error", "Passwords do not match.")
+            return
+
+        database.set_master_password(password)
+
+        self.clear_window()
+        self.create_layout()
+        self.load_passwords()
+        self.show_vault()
+
+
+    def create_unlock_screen(self):
+        self.clear_window()
+
+        container = ctk.CTkFrame(self, corner_radius=20)
+        container.pack(expand=True)
+
+        title = ctk.CTkLabel(
+            container,
+            text="SecurePass",
+            font=("Segoe UI", 32, "bold")
+        )
+        title.pack(padx=60, pady=(45, 10))
+
+        subtitle = ctk.CTkLabel(
+            container,
+            text="Enter your master password to unlock your vault.",
+            text_color="#9ca3af"
+        )
+        subtitle.pack(pady=(0, 25))
+
+        self.unlock_password_entry = ctk.CTkEntry(
+            container,
+            placeholder_text="Master Password",
+            show="•",
+            width=300,
+            height=42
+        )
+        self.unlock_password_entry.pack(pady=8)
+
+        unlock_button = ctk.CTkButton(
+            container,
+            text="Unlock",
+            width=300,
+            height=44,
+            command=self.unlock_vault
+        )
+        unlock_button.pack(pady=(25, 40))
+
+        self.unlock_password_entry.bind("<Return>", lambda event: self.unlock_vault())
+
+
+    def unlock_vault(self):
+        password = self.unlock_password_entry.get().strip()
+
+        if database.verify_master_password(password):
+            self.clear_window()
+            self.create_layout()
+            self.load_passwords()
+            self.show_vault()
+        else:
+            messagebox.showerror("Access Denied", "Incorrect master password.")
 
 
 if __name__ == "__main__":
