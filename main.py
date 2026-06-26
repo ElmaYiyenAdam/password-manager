@@ -6,33 +6,60 @@ from datetime import datetime
 from collections import Counter
 import database
 
-ctk.set_appearance_mode("dark")
+THEME_SETTING_KEY = "theme"
+DEFAULT_THEME = "dark"
+THEME_OPTIONS = ["Dark", "Light", "System"]
+THEME_VALUES = {"dark", "light", "system"}
 
-APP_BG = "#0f172a"
-SIDEBAR_BG = "#020617"
-CARD_BG = "#111827"
-CARD_SOFT = "#1f2937"
-INPUT_BG = "#0b1220"
+APP_BG = ("#f1f5f9", "#0f172a")
+SIDEBAR_BG = ("#ffffff", "#020617")
+CARD_BG = ("#ffffff", "#111827")
+CARD_SOFT = ("#e2e8f0", "#1f2937")
+CARD_SOFT_HOVER = ("#cbd5e1", "#334155")
+NEUTRAL_BUTTON_BG = ("#f8fafc", "#334155")
+NEUTRAL_BUTTON_HOVER = ("#e2e8f0", "#475569")
+INPUT_BG = ("#f8fafc", "#0b1220")
 
-TEXT_PRIMARY = "#f8fafc"
-TEXT_SECONDARY = "#94a3b8"
-TEXT_MUTED = "#64748b"
+TEXT_PRIMARY = ("#0f172a", "#f8fafc")
+TEXT_SECONDARY = ("#334155", "#94a3b8")
+TEXT_MUTED = ("#64748b", "#64748b")
+TEXT_ON_ACCENT = "#ffffff"
 
 ACCENT = "#7c3aed"
 ACCENT_HOVER = "#6d28d9"
 
-DANGER_HOVER = "#991b1b"
-BORDER = "#334155"
+DANGER_HOVER = ("#fee2e2", "#991b1b")
+DANGER_TEXT = ("#b91c1c", "#fca5a5")
+BORDER = ("#cbd5e1", "#334155")
+
+
+def normalize_theme(theme):
+    normalized = str(theme or DEFAULT_THEME).strip().lower()
+    if normalized not in THEME_VALUES:
+        return DEFAULT_THEME
+    return normalized
+
+
+def get_theme_label(theme):
+    return normalize_theme(theme).title()
+
+
+def load_saved_theme():
+    database.create_table()
+    theme = normalize_theme(database.get_setting(THEME_SETTING_KEY, DEFAULT_THEME))
+    ctk.set_appearance_mode(theme)
+    return theme
 
 
 class SecurePassApp(ctk.CTk):
     def __init__(self):
+        initial_theme = load_saved_theme()
         super().__init__()
 
+        self.current_theme = initial_theme
         self.editing_password_id = None
         self.toast = None
         self.toast_after_id = None
-        database.create_table()
 
         self.title("SecurePass Manager")
         self.geometry("1120x700")
@@ -123,6 +150,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=14,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
+            text_color=TEXT_ON_ACCENT,
             font=("Segoe UI", 14, "bold"),
             command=self.save_master_password
         ).pack(pady=(28, 45))
@@ -202,6 +230,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=14,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
+            text_color=TEXT_ON_ACCENT,
             font=("Segoe UI", 14, "bold"),
             command=self.unlock_vault
         ).pack(pady=(22, 16))
@@ -295,7 +324,7 @@ class SecurePassApp(ctk.CTk):
             button.configure(
                 fg_color=ACCENT if active == name else "transparent",
                 hover_color=ACCENT_HOVER if active == name else CARD_SOFT,
-                text_color=TEXT_PRIMARY if active == name else TEXT_SECONDARY
+                text_color=TEXT_ON_ACCENT if active == name else TEXT_SECONDARY
             )
 
     def create_input(self, parent, placeholder, show=None, width=240):
@@ -322,7 +351,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=14,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
-            text_color=TEXT_PRIMARY,
+            text_color=TEXT_ON_ACCENT,
             font=("Segoe UI", 14, "bold"),
             command=command
         )
@@ -499,7 +528,7 @@ class SecurePassApp(ctk.CTk):
             height=42,
             corner_radius=14,
             fg_color=CARD_SOFT,
-            hover_color="#334155",
+            hover_color=CARD_SOFT_HOVER,
             text_color=TEXT_PRIMARY,
             font=("Segoe UI", 13, "bold"),
             command=self.generate_password_quick
@@ -521,7 +550,7 @@ class SecurePassApp(ctk.CTk):
             self.table_frame,
             fg_color="transparent",
             scrollbar_button_color=CARD_SOFT,
-            scrollbar_button_hover_color="#334155"
+            scrollbar_button_hover_color=CARD_SOFT_HOVER
         )
         self.list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
@@ -575,7 +604,7 @@ class SecurePassApp(ctk.CTk):
             height=46,
             corner_radius=14,
             fg_color=CARD_SOFT,
-            hover_color="#334155",
+            hover_color=CARD_SOFT_HOVER,
             text_color=TEXT_PRIMARY,
             font=("Segoe UI", 14, "bold"),
             command=self.use_generated_password
@@ -586,7 +615,7 @@ class SecurePassApp(ctk.CTk):
             self.main_area,
             fg_color="transparent",
             scrollbar_button_color=CARD_SOFT,
-            scrollbar_button_hover_color="#334155"
+            scrollbar_button_hover_color=CARD_SOFT_HOVER
         )
 
         appearance_card = self.create_settings_card(self.settings_view, "Appearance")
@@ -597,11 +626,12 @@ class SecurePassApp(ctk.CTk):
             "Theme",
             "Choose the app color preference."
         )
-        self.theme_var = ctk.StringVar(value="Dark")
+        self.theme_var = ctk.StringVar(value=get_theme_label(self.current_theme))
         self.theme_menu = self.create_settings_dropdown(
             theme_row,
-            ["Dark", "Light", "System"],
-            self.theme_var
+            THEME_OPTIONS,
+            self.theme_var,
+            self.change_theme
         )
         self.theme_menu.pack(side="right")
 
@@ -621,7 +651,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=14,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
-            text_color=TEXT_PRIMARY,
+            text_color=TEXT_ON_ACCENT,
             font=("Segoe UI", 13, "bold"),
             command=self.open_change_master_password_modal
         ).pack(side="right")
@@ -708,11 +738,12 @@ class SecurePassApp(ctk.CTk):
 
         return row
 
-    def create_settings_dropdown(self, parent, values, variable):
+    def create_settings_dropdown(self, parent, values, variable, command=None):
         return ctk.CTkOptionMenu(
             parent,
             values=values,
             variable=variable,
+            command=command,
             width=150,
             height=40,
             corner_radius=14,
@@ -720,11 +751,20 @@ class SecurePassApp(ctk.CTk):
             button_color=ACCENT,
             button_hover_color=ACCENT_HOVER,
             dropdown_fg_color=CARD_SOFT,
-            dropdown_hover_color="#334155",
+            dropdown_hover_color=CARD_SOFT_HOVER,
             dropdown_text_color=TEXT_PRIMARY,
             text_color=TEXT_PRIMARY,
             font=("Segoe UI", 13)
         )
+
+    def change_theme(self, selected_theme):
+        theme = normalize_theme(selected_theme)
+        ctk.set_appearance_mode(theme)
+        database.set_setting(THEME_SETTING_KEY, theme)
+
+        self.current_theme = theme
+        self.theme_var.set(get_theme_label(theme))
+        self.show_toast(f"Theme changed to {get_theme_label(theme)}")
 
     def create_settings_action_button(self, parent, text):
         ctk.CTkButton(
@@ -733,7 +773,7 @@ class SecurePassApp(ctk.CTk):
             height=44,
             corner_radius=14,
             fg_color=CARD_SOFT,
-            hover_color="#334155",
+            hover_color=CARD_SOFT_HOVER,
             text_color=TEXT_PRIMARY,
             font=("Segoe UI", 13, "bold"),
             command=self.show_coming_soon
@@ -822,7 +862,7 @@ class SecurePassApp(ctk.CTk):
             height=42,
             corner_radius=14,
             fg_color=CARD_SOFT,
-            hover_color="#334155",
+            hover_color=CARD_SOFT_HOVER,
             text_color=TEXT_PRIMARY,
             font=("Segoe UI", 13, "bold"),
             command=modal.destroy
@@ -836,7 +876,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=14,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
-            text_color=TEXT_PRIMARY,
+            text_color=TEXT_ON_ACCENT,
             font=("Segoe UI", 13, "bold"),
             command=submit_change
         ).pack(side="right")
@@ -1029,8 +1069,9 @@ class SecurePassApp(ctk.CTk):
             width=76,
             height=32,
             corner_radius=10,
-            fg_color="#334155",
-            hover_color="#475569",
+            fg_color=NEUTRAL_BUTTON_BG,
+            hover_color=NEUTRAL_BUTTON_HOVER,
+            text_color=TEXT_PRIMARY,
             command=lambda: self.toggle_password(password_label, password, show_button)
         )
         show_button.pack(pady=3)
@@ -1043,6 +1084,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=10,
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
+            text_color=TEXT_ON_ACCENT,
             command=lambda: self.copy_password(password)
         ).pack(pady=3)
 
@@ -1054,6 +1096,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=10,
             fg_color="#0ea5e9",
             hover_color="#0284c7",
+            text_color=TEXT_ON_ACCENT,
             command=lambda: self.edit_password(
                 password_id,
                 website,
@@ -1071,7 +1114,7 @@ class SecurePassApp(ctk.CTk):
             corner_radius=10,
             fg_color="transparent",
             hover_color=DANGER_HOVER,
-            text_color="#fca5a5",
+            text_color=DANGER_TEXT,
             command=lambda: self.delete_password(password_id)
         ).pack(pady=3)
 

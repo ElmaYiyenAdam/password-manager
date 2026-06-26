@@ -39,6 +39,34 @@ def create_table():
     conn.close()
 
 
+def set_setting(key, value):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES (?, ?)
+    """, (key, value))
+
+    conn.commit()
+    conn.close()
+
+
+def get_setting(key, default=None):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    result = cursor.fetchone()
+
+    conn.close()
+
+    if result is None:
+        return default
+
+    return result[0]
+
+
 def hash_master_password(password, salt=None):
     if salt is None:
         salt = os.urandom(16)
