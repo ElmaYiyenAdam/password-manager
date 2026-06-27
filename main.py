@@ -33,6 +33,9 @@ CARD_SOFT_HOVER = ("#cbd5e1", "#334155")
 NEUTRAL_BUTTON_BG = ("#f8fafc", "#334155")
 NEUTRAL_BUTTON_HOVER = ("#e2e8f0", "#475569")
 INPUT_BG = ("#f8fafc", "#0b1220")
+FAVORITE_BUTTON_BG = ("#facc15", "#ca8a04")
+FAVORITE_BUTTON_HOVER = ("#eab308", "#a16207")
+FAVORITE_BUTTON_TEXT = "#111827"
 
 TEXT_PRIMARY = ("#0f172a", "#f8fafc")
 TEXT_SECONDARY = ("#334155", "#94a3b8")
@@ -565,6 +568,7 @@ class SecurePassApp(ctk.CTk):
 
     def update_dashboard(self):
         rows = database.get_passwords("", self.crypto)
+        favorites = database.get_favorites(self.crypto)
 
         total = len(rows)
         strong = 0
@@ -573,7 +577,7 @@ class SecurePassApp(ctk.CTk):
         accounts_by_password = {}
 
         for row in rows:
-            _, website, username, password, _, _ = row
+            _, website, username, password, _, _, _ = row
 
             if password == "[decryption failed]" or password == "[locked]":
                 continue
@@ -608,6 +612,7 @@ class SecurePassApp(ctk.CTk):
                 text_color=TEXT_MUTED,
                 font=("Segoe UI", 15)
             ).pack(anchor="w", pady=10)
+            self.create_favorites_section(favorites)
             self.create_reused_password_section(reused_groups)
             return
 
@@ -636,7 +641,41 @@ class SecurePassApp(ctk.CTk):
             font=("Segoe UI", 14)
         ).pack(anchor="w")
 
+        self.create_favorites_section(favorites)
         self.create_reused_password_section(reused_groups)
+
+    def create_favorites_section(self, favorites):
+        ctk.CTkFrame(
+            self.dashboard_summary_frame,
+            height=1,
+            fg_color=BORDER
+        ).pack(fill="x", pady=(22, 18))
+
+        ctk.CTkLabel(
+            self.dashboard_summary_frame,
+            text="⭐ Favorites",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        if not favorites:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text="No favorite passwords yet.",
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 14)
+            ).pack(anchor="w")
+            return
+
+        for _, website, username, _, _, _, _ in favorites:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text=f"⭐ {website} — {username}",
+                text_color=TEXT_PRIMARY,
+                font=("Segoe UI", 14),
+                justify="left",
+                wraplength=680
+            ).pack(anchor="w", pady=(0, 8))
 
     def create_reused_password_section(self, reused_groups):
         ctk.CTkFrame(
@@ -1100,8 +1139,9 @@ class SecurePassApp(ctk.CTk):
                 "password": password,
                 "note": note or "",
                 "updated_at": updated_at or "",
+                "favorite": int(favorite or 0),
             }
-            for _, website, username, password, note, updated_at in rows
+            for _, website, username, password, note, updated_at, favorite in rows
         ]
 
         try:
@@ -1170,7 +1210,7 @@ class SecurePassApp(ctk.CTk):
         self.show_toast("Database imported successfully.")
 
     def write_password_csv(self, destination, records):
-        fieldnames = ["website", "username", "password", "note", "updated_at"]
+        fieldnames = ["website", "username", "password", "note", "updated_at", "favorite"]
 
         with open(destination, "w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=fieldnames)
@@ -1213,6 +1253,7 @@ class SecurePassApp(ctk.CTk):
             )
             note = "" if record.get("note") is None else str(record.get("note"))
             updated_at = str(record.get("updated_at", "") or "").strip()
+            favorite = 1 if setting_to_bool(record.get("favorite", "0")) else 0
 
             if not updated_at:
                 updated_at = current_timestamp
@@ -1226,7 +1267,8 @@ class SecurePassApp(ctk.CTk):
                 password,
                 note,
                 updated_at,
-                self.crypto
+                self.crypto,
+                favorite
             )
             imported_count += 1
 
@@ -1344,16 +1386,16 @@ class SecurePassApp(ctk.CTk):
 
             decrypted_rows = []
             for row in encrypted_rows:
-                password_id, website, username, encrypted_password, note, updated_at = row
+                password_id, website, username, encrypted_password, note, updated_at, favorite = row
                 password = database.decrypt_password_strict(old_crypto, encrypted_password)
-                decrypted_rows.append((password_id, website, username, password, note, updated_at))
+                decrypted_rows.append((password_id, website, username, password, note, updated_at, favorite))
 
             master_password_value, new_crypto = database.create_master_password_value_and_crypto(new_password)
 
             reencrypted_rows = []
-            for password_id, website, username, password, note, updated_at in decrypted_rows:
+            for password_id, website, username, password, note, updated_at, favorite in decrypted_rows:
                 encrypted_password = database.encrypt_password(new_crypto, password)
-                reencrypted_rows.append((password_id, website, username, encrypted_password, note, updated_at))
+                reencrypted_rows.append((password_id, website, username, encrypted_password, note, updated_at, favorite))
 
             database.replace_master_password_and_password_rows(master_password_value, reencrypted_rows)
         except Exception:
@@ -1409,10 +1451,9 @@ class SecurePassApp(ctk.CTk):
         self.set_active_nav("settings")
 
     def save_password(self):
-        if self.editing_password_id is not None:
-            database.delete_password(self.editing_password_id)
-            self.editing_password_id = None
-            self.save_button.configure(text="Save Password")
+        editing_password_id = self.editing_password_id
+        favorite = 0
+
         website = self.website_entry.get().strip()
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
@@ -1423,7 +1464,21 @@ class SecurePassApp(ctk.CTk):
             messagebox.showerror("Missing Information", "Website, username and password are required.")
             return
 
-        database.add_or_update_password(website, username, password, note, updated_at, self.crypto)
+        if editing_password_id is not None:
+            favorite = database.get_password_favorite(editing_password_id)
+            database.delete_password(editing_password_id)
+            self.editing_password_id = None
+            self.save_button.configure(text="Save Password")
+
+        database.add_or_update_password(
+            website,
+            username,
+            password,
+            note,
+            updated_at,
+            self.crypto,
+            favorite
+        )
 
         self.clear_form()
         self.load_passwords()
@@ -1444,8 +1499,35 @@ class SecurePassApp(ctk.CTk):
             ctk.CTkLabel(self.list_frame, text="No passwords found.", text_color=TEXT_MUTED, font=("Segoe UI", 14)).pack(pady=36)
             return
 
-        for item in passwords:
+        favorites = [item for item in passwords if item[-1]]
+        regular_passwords = [item for item in passwords if not item[-1]]
+
+        if favorites:
+            self.create_vault_section_header("⭐ Favorites")
+
+            for item in favorites:
+                self.create_password_card(item)
+
+            if regular_passwords:
+                self.create_vault_divider()
+
+        for item in regular_passwords:
             self.create_password_card(item)
+
+    def create_vault_section_header(self, title):
+        ctk.CTkLabel(
+            self.list_frame,
+            text=title,
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 13, "bold")
+        ).pack(anchor="w", padx=12, pady=(4, 6))
+
+    def create_vault_divider(self):
+        ctk.CTkFrame(
+            self.list_frame,
+            height=1,
+            fg_color=BORDER
+        ).pack(fill="x", padx=8, pady=(8, 16))
 
     def get_password_health(self, password):
         score = self.calculate_strength(password)
@@ -1479,7 +1561,7 @@ class SecurePassApp(ctk.CTk):
         return level, style["bg"], style["text"], reason
 
     def create_password_card(self, item):
-        password_id, website, username, password, note, updated_at = item
+        password_id, website, username, password, note, updated_at, favorite = item
 
         card = ctk.CTkFrame(
             self.list_frame,
@@ -1552,6 +1634,20 @@ class SecurePassApp(ctk.CTk):
         right = ctk.CTkFrame(card, fg_color="transparent")
         right.pack(side="right", padx=18, pady=12)
 
+        favorite_button = ctk.CTkButton(
+            right,
+            text="⭐" if favorite else "☆",
+            width=76,
+            height=32,
+            corner_radius=10,
+            fg_color=FAVORITE_BUTTON_BG if favorite else "transparent",
+            hover_color=FAVORITE_BUTTON_HOVER if favorite else CARD_SOFT_HOVER,
+            text_color=FAVORITE_BUTTON_TEXT if favorite else TEXT_SECONDARY,
+            font=("Segoe UI", 16, "bold"),
+            command=lambda: self.toggle_favorite(password_id)
+        )
+        favorite_button.pack(pady=3)
+
         show_button = ctk.CTkButton(
             right,
             text="Show",
@@ -1606,6 +1702,19 @@ class SecurePassApp(ctk.CTk):
             text_color=DANGER_TEXT,
             command=lambda: self.delete_password(password_id)
         ).pack(pady=3)
+
+    def toggle_favorite(self, password_id):
+        favorite = database.toggle_favorite(password_id)
+
+        if favorite is None:
+            messagebox.showerror("Favorite Error", "Unable to update favorite status.")
+            return
+
+        self.load_passwords()
+        self.update_dashboard()
+        self.show_toast(
+            "Added to favorites" if favorite else "Removed from favorites"
+        )
 
     def edit_password(self, password_id, website, username, password, note):
         self.editing_password_id = password_id

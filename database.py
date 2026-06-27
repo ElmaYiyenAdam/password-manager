@@ -24,9 +24,12 @@ def create_table():
             password TEXT NOT NULL,
             note TEXT,
             updated_at TEXT,
+            favorite INTEGER NOT NULL DEFAULT 0,
             UNIQUE(website, username)
         )
     """)
+
+    migrate_passwords_table(cursor)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
@@ -37,6 +40,16 @@ def create_table():
 
     conn.commit()
     conn.close()
+
+
+def migrate_passwords_table(cursor):
+    cursor.execute("PRAGMA table_info(passwords)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "favorite" not in columns:
+        cursor.execute(
+            "ALTER TABLE passwords ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def set_setting(key, value):
@@ -188,24 +201,51 @@ def decrypt_password_strict(crypto, encrypted_password):
     return crypto.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
 
 
-def add_or_update_password(website, username, password, note, updated_at, crypto):
+def add_or_update_password(
+    website,
+    username,
+    password,
+    note,
+    updated_at,
+    crypto,
+    favorite=0
+):
     encrypted_password = encrypt_password(crypto, password)
+    favorite = 1 if favorite else 0
 
     conn = connect()
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO passwords (website, username, password, note, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO passwords (website, username, password, note, updated_at, favorite)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(website, username)
         DO UPDATE SET
             password = excluded.password,
             note = excluded.note,
             updated_at = excluded.updated_at
-    """, (website, username, encrypted_password, note, updated_at))
+    """, (website, username, encrypted_password, note, updated_at, favorite))
 
     conn.commit()
     conn.close()
+
+
+def decrypt_password_rows(rows, crypto=None):
+    decrypted_rows = []
+
+    for row in rows:
+        password_id, website, username, encrypted_password, note, updated_at, favorite = row
+
+        if crypto is None:
+            password = "[locked]"
+        else:
+            password = decrypt_password(crypto, encrypted_password)
+
+        decrypted_rows.append(
+            (password_id, website, username, password, note, updated_at, int(favorite or 0))
+        )
+
+    return decrypted_rows
 
 
 def get_passwords(search_text="", crypto=None):
@@ -215,36 +255,39 @@ def get_passwords(search_text="", crypto=None):
     if search_text:
         search = f"%{search_text}%"
         cursor.execute("""
-            SELECT id, website, username, password, note, updated_at
+            SELECT id, website, username, password, note, updated_at, favorite
             FROM passwords
             WHERE website LIKE ? OR username LIKE ? OR note LIKE ?
-            ORDER BY updated_at DESC
+            ORDER BY favorite DESC, updated_at DESC
         """, (search, search, search))
     else:
         cursor.execute("""
-            SELECT id, website, username, password, note, updated_at
+            SELECT id, website, username, password, note, updated_at, favorite
             FROM passwords
-            ORDER BY updated_at DESC
+            ORDER BY favorite DESC, updated_at DESC
         """)
 
     rows = cursor.fetchall()
     conn.close()
 
-    decrypted_rows = []
+    return decrypt_password_rows(rows, crypto)
 
-    for row in rows:
-        password_id, website, username, encrypted_password, note, updated_at = row
 
-        if crypto is None:
-            password = "[locked]"
-        else:
-            password = decrypt_password(crypto, encrypted_password)
+def get_favorites(crypto=None):
+    conn = connect()
+    cursor = conn.cursor()
 
-        decrypted_rows.append(
-            (password_id, website, username, password, note, updated_at)
-        )
+    cursor.execute("""
+        SELECT id, website, username, password, note, updated_at, favorite
+        FROM passwords
+        WHERE favorite = 1
+        ORDER BY updated_at DESC
+    """)
 
-    return decrypted_rows
+    rows = cursor.fetchall()
+    conn.close()
+
+    return decrypt_password_rows(rows, crypto)
 
 
 def get_encrypted_password_rows():
@@ -252,7 +295,7 @@ def get_encrypted_password_rows():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, website, username, password, note, updated_at
+        SELECT id, website, username, password, note, updated_at, favorite
         FROM passwords
         ORDER BY id
     """)
@@ -265,6 +308,13 @@ def get_encrypted_password_rows():
 def replace_master_password_and_password_rows(master_password_value, rows):
     conn = connect()
     cursor = conn.cursor()
+    normalized_rows = []
+
+    for row in rows:
+        if len(row) == 6:
+            normalized_rows.append((*row, 0))
+        else:
+            normalized_rows.append(row)
 
     try:
         cursor.execute("""
@@ -274,9 +324,9 @@ def replace_master_password_and_password_rows(master_password_value, rows):
 
         cursor.execute("DELETE FROM passwords")
         cursor.executemany("""
-            INSERT INTO passwords (id, website, username, password, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, rows)
+            INSERT INTO passwords (id, website, username, password, note, updated_at, favorite)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, normalized_rows)
 
         conn.commit()
     except Exception:
@@ -294,3 +344,42 @@ def delete_password(password_id):
 
     conn.commit()
     conn.close()
+
+
+def get_password_favorite(password_id):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT favorite FROM passwords WHERE id = ?", (password_id,))
+    result = cursor.fetchone()
+
+    conn.close()
+
+    if result is None:
+        return 0
+
+    return int(result[0] or 0)
+
+
+def toggle_favorite(password_id):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE passwords
+        SET favorite = CASE WHEN COALESCE(favorite, 0) = 1 THEN 0 ELSE 1 END
+        WHERE id = ?
+    """, (password_id,))
+
+    if cursor.rowcount == 0:
+        conn.rollback()
+        conn.close()
+        return None
+
+    cursor.execute("SELECT favorite FROM passwords WHERE id = ?", (password_id,))
+    result = cursor.fetchone()
+
+    conn.commit()
+    conn.close()
+
+    return int(result[0] or 0)
