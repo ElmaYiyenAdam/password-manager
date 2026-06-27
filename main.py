@@ -137,19 +137,28 @@ def get_password_age_days(updated_at):
     return max((datetime.now().date() - changed_at.date()).days, 0)
 
 
-def format_password_age(updated_at):
-    age_days = get_password_age_days(updated_at)
-    updated_at_text = str(updated_at or "").strip()
-
+def format_password_age_value(age_days):
     if age_days is None:
-        if updated_at_text:
-            return f"Updated {updated_at_text}"
-        return None
+        return "Unknown"
 
     if age_days == 0:
-        return "Last changed today"
+        return "Today"
 
-    return f"Last changed {age_days} days ago"
+    day_label = "day" if age_days == 1 else "days"
+    return f"{age_days} {day_label}"
+
+
+def get_password_age_color(age_days):
+    if age_days is None:
+        return TEXT_MUTED
+
+    if age_days <= 30:
+        return ("#15803d", "#86efac")
+
+    if age_days <= 179:
+        return ("#ca8a04", "#fde047")
+
+    return DANGER_TEXT
 
 
 def load_saved_theme():
@@ -1887,7 +1896,8 @@ class SecurePassApp(ctk.CTk):
         exposure_status = self.get_exposure_status(password)
         exposure_label, exposure_detail, exposure_bg, exposure_text = self.get_exposure_display(exposure_status)
         age_days = get_password_age_days(updated_at)
-        password_age_text = format_password_age(updated_at)
+        password_age_value = format_password_age_value(age_days)
+        password_age_color = get_password_age_color(age_days)
 
         badge_row = ctk.CTkFrame(left, fg_color="transparent")
         badge_row.pack(anchor="w", pady=(10, 0))
@@ -1943,13 +1953,22 @@ class SecurePassApp(ctk.CTk):
                 font=("Segoe UI", 12)
             ).pack(anchor="w", pady=(6, 0))
 
-        if password_age_text:
-            ctk.CTkLabel(
-                left,
-                text=password_age_text,
-                text_color=TEXT_MUTED,
-                font=("Segoe UI", 12)
-            ).pack(anchor="w", pady=(6, 0))
+        password_age_frame = ctk.CTkFrame(left, fg_color="transparent")
+        password_age_frame.pack(anchor="w", pady=(8, 0))
+
+        ctk.CTkLabel(
+            password_age_frame,
+            text="Password Age",
+            text_color=TEXT_MUTED,
+            font=("Segoe UI", 11)
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            password_age_frame,
+            text=password_age_value,
+            text_color=password_age_color,
+            font=("Segoe UI", 17, "bold")
+        ).pack(anchor="w", pady=(1, 0))
 
         if age_days is not None and age_days >= PASSWORD_UPDATE_THRESHOLD_DAYS:
             ctk.CTkLabel(
