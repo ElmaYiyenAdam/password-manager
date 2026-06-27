@@ -27,6 +27,13 @@ AUTO_LOCK_TIMEOUT_OPTIONS = {
 }
 DEFAULT_AUTO_LOCK_TIMEOUT_SECONDS = AUTO_LOCK_TIMEOUT_OPTIONS["5 minutes"]
 AUTO_LOCK_CHECK_INTERVAL_MS = 1000
+VAULT_VIEW_MODE_SETTING_KEY = "vault_view_mode"
+DEFAULT_VAULT_VIEW_MODE = "tiles"
+VAULT_VIEW_MODE_VALUES = {"tiles", "list"}
+VAULT_VIEW_MODE_LABELS = {
+    "tiles": "Tiles",
+    "list": "List",
+}
 
 APP_BG = ("#f1f5f9", "#0f172a")
 SIDEBAR_BG = ("#ffffff", "#020617")
@@ -116,6 +123,22 @@ def get_theme_label(theme):
     return normalize_theme(theme).title()
 
 
+def normalize_vault_view_mode(view_mode):
+    normalized = str(view_mode or DEFAULT_VAULT_VIEW_MODE).strip().lower()
+
+    if normalized == "tile":
+        normalized = "tiles"
+
+    if normalized not in VAULT_VIEW_MODE_VALUES:
+        return DEFAULT_VAULT_VIEW_MODE
+
+    return normalized
+
+
+def get_vault_view_mode_label(view_mode):
+    return VAULT_VIEW_MODE_LABELS[normalize_vault_view_mode(view_mode)]
+
+
 def parse_updated_at(updated_at):
     updated_at_text = str(updated_at or "").strip()
 
@@ -168,6 +191,15 @@ def load_saved_theme():
     return theme
 
 
+def load_saved_vault_view_mode():
+    return normalize_vault_view_mode(
+        database.get_setting(
+            VAULT_VIEW_MODE_SETTING_KEY,
+            DEFAULT_VAULT_VIEW_MODE
+        )
+    )
+
+
 def setting_to_bool(value):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -213,11 +245,13 @@ class SecurePassApp(ctk.CTk):
     def __init__(self):
         initial_theme = load_saved_theme()
         auto_lock_enabled, auto_lock_timeout_seconds = load_saved_auto_lock_settings()
+        vault_view_mode = load_saved_vault_view_mode()
         super().__init__()
 
         self.current_theme = initial_theme
         self.auto_lock_enabled = auto_lock_enabled
         self.auto_lock_timeout_seconds = auto_lock_timeout_seconds
+        self.vault_view_mode = vault_view_mode
         self.auto_lock_after_id = None
         self.last_activity_time = time.monotonic()
         self.editing_password_id = None
@@ -975,8 +1009,38 @@ class SecurePassApp(ctk.CTk):
 
         ctk.CTkLabel(self.table_header, text="Saved Passwords", font=("Segoe UI", 23, "bold"), text_color=TEXT_PRIMARY).pack(side="left")
 
-        self.count_label = ctk.CTkLabel(self.table_header, text="0 items", font=("Segoe UI", 13), text_color=TEXT_MUTED)
-        self.count_label.pack(side="right")
+        header_controls = ctk.CTkFrame(self.table_header, fg_color="transparent")
+        header_controls.pack(side="right")
+
+        self.count_label = ctk.CTkLabel(
+            header_controls,
+            text="0 items",
+            font=("Segoe UI", 13),
+            text_color=TEXT_MUTED
+        )
+        self.count_label.pack(side="right", padx=(14, 0))
+
+        self.vault_view_mode_var = ctk.StringVar(
+            value=get_vault_view_mode_label(self.vault_view_mode)
+        )
+        self.vault_view_mode_toggle = ctk.CTkSegmentedButton(
+            header_controls,
+            values=["Tiles", "List"],
+            variable=self.vault_view_mode_var,
+            width=150,
+            height=34,
+            corner_radius=12,
+            border_width=2,
+            fg_color=CARD_SOFT,
+            selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER,
+            unselected_color=CARD_SOFT,
+            unselected_hover_color=CARD_SOFT_HOVER,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 12, "bold"),
+            command=self.change_vault_view_mode
+        )
+        self.vault_view_mode_toggle.pack(side="right")
 
         self.list_frame = ctk.CTkScrollableFrame(
             self.table_frame,
@@ -1640,6 +1704,17 @@ class SecurePassApp(ctk.CTk):
         self.search_entry.pack_forget()
         self.set_active_nav("settings")
 
+    def change_vault_view_mode(self, selected_mode):
+        view_mode = normalize_vault_view_mode(selected_mode)
+
+        if view_mode == self.vault_view_mode:
+            return
+
+        self.vault_view_mode = view_mode
+        self.vault_view_mode_var.set(get_vault_view_mode_label(view_mode))
+        database.set_setting(VAULT_VIEW_MODE_SETTING_KEY, view_mode)
+        self.load_passwords()
+
     def save_password(self):
         editing_password_id = self.editing_password_id
         favorite = 0
@@ -1691,18 +1766,23 @@ class SecurePassApp(ctk.CTk):
 
         favorites = [item for item in passwords if item[-1]]
         regular_passwords = [item for item in passwords if not item[-1]]
+        item_renderer = (
+            self.create_password_list_row
+            if self.vault_view_mode == "list"
+            else self.create_password_card
+        )
 
         if favorites:
             self.create_vault_section_header("⭐ Favorites")
 
             for item in favorites:
-                self.create_password_card(item)
+                item_renderer(item)
 
             if regular_passwords:
                 self.create_vault_divider()
 
         for item in regular_passwords:
-            self.create_password_card(item)
+            item_renderer(item)
 
     def create_vault_section_header(self, title):
         ctk.CTkLabel(
@@ -1915,6 +1995,180 @@ class SecurePassApp(ctk.CTk):
         pending_widgets = self.exposure_pending_widgets.pop(password_hash, [])
         for status_label, detail_label in pending_widgets:
             self.configure_exposure_widgets(status_label, detail_label, status)
+
+    def create_password_list_row(self, item):
+        password_id, website, username, password, note, updated_at, favorite = item
+
+        row = ctk.CTkFrame(
+            self.list_frame,
+            height=82,
+            corner_radius=16,
+            fg_color=CARD_SOFT
+        )
+        row.pack(fill="x", pady=5, padx=6)
+        row.pack_propagate(False)
+
+        ctk.CTkButton(
+            row,
+            text="⭐" if favorite else "☆",
+            width=36,
+            height=34,
+            corner_radius=10,
+            fg_color=FAVORITE_BUTTON_BG if favorite else "transparent",
+            hover_color=FAVORITE_BUTTON_HOVER if favorite else CARD_SOFT_HOVER,
+            text_color=FAVORITE_BUTTON_TEXT if favorite else TEXT_SECONDARY,
+            font=("Segoe UI", 16, "bold"),
+            command=lambda: self.toggle_favorite(password_id)
+        ).pack(side="left", padx=(12, 8), pady=24)
+
+        actions = ctk.CTkFrame(
+            row,
+            width=116,
+            height=58,
+            fg_color="transparent"
+        )
+        actions.pack(side="right", padx=(8, 12), pady=12)
+        actions.pack_propagate(False)
+        actions.grid_propagate(False)
+
+        action_font = ("Segoe UI", 10, "bold")
+
+        show_button = ctk.CTkButton(
+            actions,
+            text="Show",
+            width=52,
+            height=25,
+            corner_radius=8,
+            fg_color=NEUTRAL_BUTTON_BG,
+            hover_color=NEUTRAL_BUTTON_HOVER,
+            text_color=TEXT_PRIMARY,
+            font=action_font,
+            command=lambda: self.toggle_password(password_label, password, show_button)
+        )
+        show_button.grid(row=0, column=0, padx=2, pady=2)
+
+        ctk.CTkButton(
+            actions,
+            text="Copy",
+            width=52,
+            height=25,
+            corner_radius=8,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color=TEXT_ON_ACCENT,
+            font=action_font,
+            command=lambda: self.copy_password(password)
+        ).grid(row=0, column=1, padx=2, pady=2)
+
+        ctk.CTkButton(
+            actions,
+            text="Edit",
+            width=52,
+            height=25,
+            corner_radius=8,
+            fg_color="#0ea5e9",
+            hover_color="#0284c7",
+            text_color=TEXT_ON_ACCENT,
+            font=action_font,
+            command=lambda: self.edit_password(
+                password_id,
+                website,
+                username,
+                password,
+                note
+            )
+        ).grid(row=1, column=0, padx=2, pady=2)
+
+        ctk.CTkButton(
+            actions,
+            text="Delete",
+            width=52,
+            height=25,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=DANGER_HOVER,
+            text_color=DANGER_TEXT,
+            font=action_font,
+            command=lambda: self.delete_password(password_id)
+        ).grid(row=1, column=1, padx=2, pady=2)
+
+        details = ctk.CTkFrame(row, fg_color="transparent")
+        details.pack(side="left", fill="both", expand=True, pady=9)
+
+        top_line = ctk.CTkFrame(details, fg_color="transparent")
+        top_line.pack(fill="x")
+
+        ctk.CTkLabel(
+            top_line,
+            text=website,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 14, "bold")
+        ).pack(side="left", anchor="w")
+
+        ctk.CTkLabel(
+            top_line,
+            text=username,
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 12)
+        ).pack(side="left", padx=(14, 0), anchor="w")
+
+        password_label = ctk.CTkLabel(
+            top_line,
+            text="•" * len(password),
+            text_color=TEXT_MUTED,
+            font=("Segoe UI", 12)
+        )
+        password_label.pack(side="left", padx=(14, 0), anchor="w")
+
+        health_label, health_bg, health_text, _ = self.get_password_health(password)
+        exposure_status = self.get_exposure_status(password)
+        exposure_label, _, exposure_bg, exposure_text = self.get_exposure_display(exposure_status)
+        age_days = get_password_age_days(updated_at)
+        password_age_value = format_password_age_value(age_days)
+        password_age_color = get_password_age_color(age_days)
+
+        status_row = ctk.CTkFrame(details, fg_color="transparent")
+        status_row.pack(anchor="w", pady=(8, 0))
+
+        ctk.CTkLabel(
+            status_row,
+            text=health_label,
+            width=66,
+            height=23,
+            corner_radius=11,
+            fg_color=health_bg,
+            text_color=health_text,
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="left")
+
+        exposure_status_label = ctk.CTkLabel(
+            status_row,
+            text=exposure_label,
+            width=108,
+            height=23,
+            corner_radius=11,
+            fg_color=exposure_bg,
+            text_color=exposure_text,
+            font=("Segoe UI", 10, "bold")
+        )
+        exposure_status_label.pack(side="left", padx=(7, 0))
+
+        ctk.CTkLabel(
+            status_row,
+            text=f"Age {password_age_value}",
+            width=92,
+            height=23,
+            corner_radius=11,
+            fg_color=INPUT_BG,
+            text_color=password_age_color,
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="left", padx=(7, 0))
+
+        self.start_password_exposure_check(
+            password,
+            exposure_status_label,
+            None
+        )
 
     def create_password_card(self, item):
         password_id, website, username, password, note, updated_at, favorite = item
