@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox
 import csv
 import hashlib
 import json
+import os
 import random
 import shutil
 import string
@@ -56,6 +57,26 @@ ACCENT = "#7c3aed"
 ACCENT_HOVER = "#6d28d9"
 HIBP_RANGE_URL = "https://api.pwnedpasswords.com/range/{prefix}"
 PASSWORD_UPDATE_THRESHOLD_DAYS = 180
+
+AUDIT_SUCCESS = "#10b981"
+AUDIT_INFO = "#38bdf8"
+AUDIT_GOOD = "#22c55e"
+AUDIT_WARNING = "#f59e0b"
+AUDIT_DANGER = "#ef4444"
+AUDIT_PANEL = ("#f8fafc", "#0b1220")
+AUDIT_PANEL_SOFT = ("#eef2ff", "#172033")
+AUDIT_BORDER = ("#dbeafe", "#1e3a5f")
+
+SECURITY_RATINGS = [
+    (95, "Excellent", AUDIT_SUCCESS),
+    (85, "Very Good", AUDIT_INFO),
+    (70, "Good", AUDIT_GOOD),
+    (50, "Needs Improvement", AUDIT_WARNING),
+    (0, "Critical", AUDIT_DANGER),
+]
+
+SECURITY_SCORE_ANIMATION_STEPS = [0, 18, 37, 64, 82, 92]
+SECURITY_SCORE_ANIMATION_MS = 1000
 
 PASSWORD_HEALTH_STYLES = {
     "Strong": {
@@ -258,6 +279,9 @@ class SecurePassApp(ctk.CTk):
         self.exposure_statuses = {}
         self.exposure_checks_in_flight = set()
         self.exposure_pending_widgets = {}
+        self.dashboard_audit_data = None
+        self.security_score_after_ids = []
+        self.security_score_current = 0
         self.toast = None
         self.toast_after_id = None
 
@@ -278,6 +302,8 @@ class SecurePassApp(ctk.CTk):
         if self.toast_after_id is not None:
             self.after_cancel(self.toast_after_id)
             self.toast_after_id = None
+
+        self.cancel_security_score_animation()
 
         for widget in self.winfo_children():
             widget.destroy()
@@ -363,6 +389,7 @@ class SecurePassApp(ctk.CTk):
 
         self.clear_sensitive_fields()
         self.close_change_password_modal()
+        self.close_security_recommendations_modal()
 
         self.editing_password_id = None
         self.crypto = None
@@ -371,6 +398,16 @@ class SecurePassApp(ctk.CTk):
 
     def close_change_password_modal(self):
         modal = getattr(self, "change_password_modal", None)
+
+        try:
+            if modal is not None and modal.winfo_exists():
+                modal.grab_release()
+                modal.destroy()
+        except Exception:
+            pass
+
+    def close_security_recommendations_modal(self):
+        modal = getattr(self, "security_recommendations_modal", None)
 
         try:
             if modal is not None and modal.winfo_exists():
@@ -630,25 +667,32 @@ class SecurePassApp(ctk.CTk):
         )
 
     def create_dashboard_view(self):
-        self.dashboard_view = ctk.CTkFrame(self.main_area, fg_color="transparent")
+        self.dashboard_view = ctk.CTkScrollableFrame(
+            self.main_area,
+            fg_color="transparent",
+            scrollbar_button_color=CARD_SOFT,
+            scrollbar_button_hover_color=CARD_SOFT_HOVER
+        )
 
-        top = ctk.CTkFrame(self.dashboard_view, fg_color="transparent")
-        top.pack(fill="x")
+        audit_shadow = ctk.CTkFrame(
+            self.dashboard_view,
+            corner_radius=30,
+            fg_color=("#d8e2ef", "#050816")
+        )
+        audit_shadow.pack(fill="x", pady=(0, 24))
 
-        self.total_card = self.create_stat_card(top, "Total Passwords", "0", "#60a5fa")
-        self.total_card.pack(side="left", fill="both", expand=True, padx=(0, 14))
-
-        self.strong_card = self.create_stat_card(top, "Strong", "0", "#22c55e")
-        self.strong_card.pack(side="left", fill="both", expand=True, padx=7)
-
-        self.weak_card = self.create_stat_card(top, "Weak", "0", "#ef4444")
-        self.weak_card.pack(side="left", fill="both", expand=True, padx=7)
-
-        self.reused_card = self.create_stat_card(top, "Reused", "0", "#f59e0b")
-        self.reused_card.pack(side="left", fill="both", expand=True, padx=(14, 0))
+        self.security_audit_card = ctk.CTkFrame(
+            audit_shadow,
+            corner_radius=28,
+            fg_color=CARD_BG,
+            border_width=1,
+            border_color=AUDIT_BORDER
+        )
+        self.security_audit_card.pack(fill="x", pady=(0, 6))
+        self.create_security_audit_card(self.security_audit_card)
 
         bottom = ctk.CTkFrame(self.dashboard_view, corner_radius=24, fg_color=CARD_BG)
-        bottom.pack(fill="both", expand=True, pady=(24, 0))
+        bottom.pack(fill="x", pady=(0, 18))
 
         ctk.CTkLabel(
             bottom,
@@ -664,13 +708,160 @@ class SecurePassApp(ctk.CTk):
             text_color=TEXT_MUTED
         ).pack(anchor="w", padx=26, pady=(0, 24))
 
-        self.dashboard_summary_frame = ctk.CTkScrollableFrame(
+        self.dashboard_summary_frame = ctk.CTkFrame(
             bottom,
-            fg_color="transparent",
-            scrollbar_button_color=CARD_SOFT,
-            scrollbar_button_hover_color=CARD_SOFT_HOVER
+            fg_color="transparent"
         )
-        self.dashboard_summary_frame.pack(fill="both", expand=True, padx=26, pady=(0, 24))
+        self.dashboard_summary_frame.pack(fill="x", padx=26, pady=(0, 24))
+
+    def create_security_audit_card(self, parent):
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=28, pady=(24, 10))
+
+        title_block = ctk.CTkFrame(header, fg_color="transparent")
+        title_block.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(
+            title_block,
+            text="🛡 Security Score",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 25, "bold")
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            title_block,
+            text="Offline vault audit",
+            text_color=TEXT_MUTED,
+            font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w", pady=(4, 0))
+
+        self.security_rating_pill = ctk.CTkLabel(
+            header,
+            text="Excellent",
+            width=138,
+            height=36,
+            corner_radius=18,
+            fg_color=AUDIT_SUCCESS,
+            text_color=TEXT_ON_ACCENT,
+            font=("Segoe UI", 13, "bold")
+        )
+        self.security_rating_pill.pack(side="right", padx=(18, 0))
+
+        body = ctk.CTkFrame(parent, fg_color="transparent")
+        body.pack(fill="x", padx=28, pady=(4, 18))
+        body.grid_columnconfigure(0, weight=2, uniform="audit_body")
+        body.grid_columnconfigure(1, weight=3, uniform="audit_body")
+
+        score_panel = ctk.CTkFrame(
+            body,
+            corner_radius=24,
+            fg_color=AUDIT_PANEL,
+            border_width=1,
+            border_color=BORDER
+        )
+        score_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+
+        self.security_score_label = ctk.CTkLabel(
+            score_panel,
+            text="0 / 100",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 58, "bold")
+        )
+        self.security_score_label.pack(anchor="w", padx=24, pady=(24, 0))
+
+        self.security_score_subtitle = ctk.CTkLabel(
+            score_panel,
+            text="Excellent Security",
+            text_color=AUDIT_SUCCESS,
+            font=("Segoe UI", 20, "bold")
+        )
+        self.security_score_subtitle.pack(anchor="w", padx=26, pady=(0, 18))
+
+        self.security_score_progress = ctk.CTkProgressBar(
+            score_panel,
+            height=14,
+            corner_radius=10,
+            fg_color=CARD_SOFT,
+            progress_color=AUDIT_SUCCESS
+        )
+        self.security_score_progress.pack(fill="x", padx=26, pady=(0, 16))
+        self.security_score_progress.set(0)
+
+        ctk.CTkLabel(
+            score_panel,
+            text="Your vault follows modern security best practices.",
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 13),
+            wraplength=290,
+            justify="left"
+        ).pack(anchor="w", padx=26, pady=(0, 24))
+
+        stats_panel = ctk.CTkFrame(
+            body,
+            corner_radius=24,
+            fg_color=AUDIT_PANEL,
+            border_width=1,
+            border_color=BORDER
+        )
+        stats_panel.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+
+        ctk.CTkLabel(
+            stats_panel,
+            text="Quick Statistics",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", padx=22, pady=(20, 14))
+
+        self.audit_stats_grid = ctk.CTkFrame(stats_panel, fg_color="transparent")
+        self.audit_stats_grid.pack(fill="x", padx=16, pady=(0, 18))
+        for column in range(3):
+            self.audit_stats_grid.grid_columnconfigure(column, weight=1, uniform="audit_stats")
+
+        checklist_panel = ctk.CTkFrame(
+            parent,
+            corner_radius=24,
+            fg_color=AUDIT_PANEL,
+            border_width=1,
+            border_color=BORDER
+        )
+        checklist_panel.pack(fill="x", padx=28, pady=(0, 18))
+
+        ctk.CTkLabel(
+            checklist_panel,
+            text="Security Checklist",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", padx=22, pady=(20, 12))
+
+        self.security_checklist_frame = ctk.CTkFrame(
+            checklist_panel,
+            fg_color="transparent"
+        )
+        self.security_checklist_frame.pack(fill="x", padx=18, pady=(0, 18))
+
+        action_row = ctk.CTkFrame(parent, fg_color="transparent")
+        action_row.pack(fill="x", padx=28, pady=(0, 26))
+
+        self.security_score_hint = ctk.CTkLabel(
+            action_row,
+            text="Recommendations are generated locally from your vault data.",
+            text_color=TEXT_MUTED,
+            font=("Segoe UI", 12)
+        )
+        self.security_score_hint.pack(side="left")
+
+        ctk.CTkButton(
+            action_row,
+            text="Improve My Score →",
+            width=190,
+            height=46,
+            corner_radius=16,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color=TEXT_ON_ACCENT,
+            font=("Segoe UI", 14, "bold"),
+            command=self.open_security_recommendations_modal
+        ).pack(side="right")
 
     def create_stat_card(self, parent, title, value, accent_color):
         card = ctk.CTkFrame(parent, height=130, corner_radius=24, fg_color=CARD_BG)
@@ -696,49 +887,21 @@ class SecurePassApp(ctk.CTk):
         card.value_label = value_label
         return card
 
-    def update_dashboard(self):
+    def update_dashboard(self, animate=False):
         rows = database.get_passwords("", self.crypto)
         favorites = database.get_favorites(self.crypto)
+        audit = self.build_security_audit(rows, favorites)
+        self.dashboard_audit_data = audit
 
-        total = len(rows)
-        strong = 0
-        medium = 0
-        weak = 0
+        total = audit["total"]
+        strong = audit["strong"]
+        medium = audit["medium"]
+        weak = audit["weak"]
+        reused = audit["reused"]
+        passwords_needing_update = audit["expired_entries"]
+        reused_groups = audit["reused_groups"]
 
-        accounts_by_password = {}
-        passwords_needing_update = []
-
-        for row in rows:
-            _, website, username, password, _, updated_at, _ = row
-            age_days = get_password_age_days(updated_at)
-
-            if age_days is not None and age_days >= PASSWORD_UPDATE_THRESHOLD_DAYS:
-                passwords_needing_update.append((website, username, age_days))
-
-            if password == "[decryption failed]" or password == "[locked]":
-                continue
-
-            accounts_by_password.setdefault(password, []).append((website, username))
-
-            score = self.calculate_strength(password)
-            if score >= 4:
-                strong += 1
-            elif score == 3:
-                medium += 1
-            elif score <= 2:
-                weak += 1
-
-        reused_groups = [
-            accounts
-            for accounts in accounts_by_password.values()
-            if len(accounts) > 1
-        ]
-        reused = sum(len(accounts) for accounts in reused_groups)
-
-        self.total_card.value_label.configure(text=str(total))
-        self.strong_card.value_label.configure(text=str(strong))
-        self.weak_card.value_label.configure(text=str(weak))
-        self.reused_card.value_label.configure(text=str(reused))
+        self.refresh_security_audit_card(audit, animate=animate)
 
         for widget in self.dashboard_summary_frame.winfo_children():
             widget.destroy()
@@ -785,6 +948,664 @@ class SecurePassApp(ctk.CTk):
         self.create_expiring_passwords_section(passwords_needing_update)
         self.create_favorites_section(favorites)
         self.create_reused_password_section(reused_groups)
+
+    def get_security_rating(self, score):
+        for minimum, label, color in SECURITY_RATINGS:
+            if score >= minimum:
+                return {
+                    "label": label,
+                    "subtitle": f"{label} Security",
+                    "color": color,
+                }
+
+        label, color = "Critical", AUDIT_DANGER
+        return {
+            "label": label,
+            "subtitle": f"{label} Security",
+            "color": color,
+        }
+
+    def get_cached_exposure_status(self, password):
+        if password in {"[locked]", "[decryption failed]"}:
+            return self.get_exposure_failed_status()
+
+        password_hash = self.get_password_sha1_hash(password)
+        return self.exposure_statuses.get(
+            password_hash,
+            {
+                "state": "not_checked",
+                "count": 0,
+                "password_hash": password_hash,
+            }
+        )
+
+    def build_security_audit(self, rows, favorites):
+        total = len(rows)
+        favorite_count = len(favorites)
+        strong = 0
+        medium = 0
+        weak = 0
+        valid_lengths = []
+        accounts_by_password = {}
+        weak_entries = []
+        medium_entries = []
+        exposed_entries = []
+        expired_entries = []
+        expired_recommendation_entries = []
+
+        for row in rows:
+            password_id, website, username, password, _, updated_at, _ = row
+            age_days = get_password_age_days(updated_at)
+
+            if age_days is not None and age_days > PASSWORD_UPDATE_THRESHOLD_DAYS:
+                expired_entries.append((website, username, age_days))
+                expired_recommendation_entries.append({
+                    "id": password_id,
+                    "website": website,
+                    "username": username,
+                    "age_days": age_days,
+                })
+
+            if password in {"[decryption failed]", "[locked]"}:
+                continue
+
+            valid_lengths.append(len(password))
+            accounts_by_password.setdefault(password, []).append({
+                "id": password_id,
+                "website": website,
+                "username": username,
+            })
+
+            score = self.calculate_strength(password)
+            _, _, _, health_reason = self.get_password_health(password)
+
+            if score >= 4:
+                strong += 1
+            elif score == 3:
+                medium += 1
+                medium_entries.append({
+                    "id": password_id,
+                    "website": website,
+                    "username": username,
+                    "reason": health_reason,
+                })
+            else:
+                weak += 1
+                weak_entries.append({
+                    "id": password_id,
+                    "website": website,
+                    "username": username,
+                    "reason": health_reason,
+                })
+
+            exposure_status = self.get_cached_exposure_status(password)
+            if exposure_status.get("state") == "exposed":
+                exposed_entries.append({
+                    "id": password_id,
+                    "website": website,
+                    "username": username,
+                    "count": exposure_status.get("count", 0),
+                })
+
+        reused_account_groups = [
+            accounts
+            for accounts in accounts_by_password.values()
+            if len(accounts) > 1
+        ]
+        reused_groups = [
+            [
+                (account["website"], account["username"])
+                for account in accounts
+            ]
+            for accounts in reused_account_groups
+        ]
+        reused_entries = [
+            account
+            for accounts in reused_account_groups
+            for account in accounts
+        ]
+
+        exposed = len(exposed_entries)
+        expired = len(expired_entries)
+        reused = len(reused_entries)
+        average_length = (
+            int(round(sum(valid_lengths) / len(valid_lengths)))
+            if valid_lengths else 0
+        )
+
+        penalty = (
+            (weak * 6) +
+            (medium * 2) +
+            (reused * 10) +
+            (exposed * 12) +
+            (expired * 5)
+        )
+        score = max(0, min(100, 100 - penalty))
+        rating = self.get_security_rating(score)
+
+        recommendations = self.build_security_recommendations(
+            weak_entries,
+            medium_entries,
+            reused_entries,
+            exposed_entries,
+            expired_recommendation_entries
+        )
+        warnings = self.build_security_warnings(
+            weak,
+            reused,
+            exposed,
+            expired
+        )
+
+        return {
+            "score": score,
+            "rating": rating,
+            "total": total,
+            "favorites": favorite_count,
+            "strong": strong,
+            "medium": medium,
+            "weak": weak,
+            "exposed": exposed,
+            "expired": expired,
+            "reused": reused,
+            "average_length": average_length,
+            "expired_entries": expired_entries,
+            "reused_groups": reused_groups,
+            "warnings": warnings,
+            "recommendations": recommendations,
+        }
+
+    def build_security_warnings(self, weak, reused, exposed, expired):
+        warnings = []
+
+        if weak:
+            warnings.append({
+                "text": f"❌ {weak} {self.pluralize(weak, 'Weak Password')}",
+                "color": AUDIT_DANGER,
+            })
+
+        if reused:
+            warnings.append({
+                "text": f"❌ {reused} {self.pluralize(reused, 'Reused Password')}",
+                "color": AUDIT_DANGER,
+            })
+
+        if exposed:
+            warnings.append({
+                "text": f"❌ {exposed} {self.pluralize(exposed, 'Exposed Password')}",
+                "color": AUDIT_DANGER,
+            })
+
+        if expired:
+            verb = "Needs" if expired == 1 else "Need"
+            warnings.append({
+                "text": f"⚠ {expired} {self.pluralize(expired, 'Password')} {verb} Updating",
+                "color": AUDIT_WARNING,
+            })
+
+        return warnings
+
+    def build_security_recommendations(
+        self,
+        weak_entries,
+        medium_entries,
+        reused_entries,
+        exposed_entries,
+        expired_entries
+    ):
+        recommendations = []
+
+        for entry in exposed_entries:
+            recommendations.append({
+                "website": entry["website"],
+                "username": entry["username"],
+                "issue": "Password found in known data breaches.",
+                "recommendation": "Replace this password immediately.",
+                "priority": "High",
+            })
+
+        for entry in weak_entries:
+            recommendations.append({
+                "website": entry["website"],
+                "username": entry["username"],
+                "issue": "Weak password.",
+                "recommendation": "Generate a password with at least 14 characters.",
+                "priority": "High",
+            })
+
+        for entry in reused_entries:
+            recommendations.append({
+                "website": entry["website"],
+                "username": entry["username"],
+                "issue": "Password reused.",
+                "recommendation": "Generate a unique password.",
+                "priority": "High",
+            })
+
+        for entry in expired_entries:
+            recommendations.append({
+                "website": entry["website"],
+                "username": entry["username"],
+                "issue": f"Password is {entry['age_days']} days old.",
+                "recommendation": "Change this password.",
+                "priority": "Medium",
+            })
+
+        for entry in medium_entries:
+            recommendations.append({
+                "website": entry["website"],
+                "username": entry["username"],
+                "issue": "Medium password strength.",
+                "recommendation": "Increase length and include mixed character types.",
+                "priority": "Low",
+            })
+
+        priority_order = {"High": 0, "Medium": 1, "Low": 2}
+        return sorted(
+            recommendations,
+            key=lambda item: (
+                priority_order.get(item["priority"], 3),
+                item["website"].lower()
+            )
+        )
+
+    def pluralize(self, count, singular):
+        return singular if count == 1 else f"{singular}s"
+
+    def refresh_security_audit_card(self, audit, animate=False):
+        if not hasattr(self, "security_score_label"):
+            return
+
+        rating = audit["rating"]
+        rating_color = rating["color"]
+        self.security_rating_pill.configure(
+            text=rating["label"],
+            fg_color=rating_color
+        )
+        self.security_score_subtitle.configure(
+            text=rating["subtitle"],
+            text_color=rating_color
+        )
+        self.security_score_progress.configure(progress_color=rating_color)
+
+        if animate:
+            self.animate_security_score(audit["score"])
+        else:
+            self.set_security_score(audit["score"])
+
+        self.refresh_audit_statistics(audit)
+        self.refresh_security_checklist(audit)
+
+        recommendation_count = len(audit["recommendations"])
+        hint = (
+            "Everything looks secure."
+            if recommendation_count == 0
+            else f"{recommendation_count} local recommendations available."
+        )
+        self.security_score_hint.configure(text=hint)
+
+    def refresh_audit_statistics(self, audit):
+        for widget in self.audit_stats_grid.winfo_children():
+            widget.destroy()
+
+        stats = [
+            ("Passwords", audit["total"], "#60a5fa"),
+            ("Favorites", audit["favorites"], "#facc15"),
+            ("Strong", audit["strong"], AUDIT_SUCCESS),
+            ("Medium", audit["medium"], AUDIT_WARNING),
+            ("Weak", audit["weak"], AUDIT_DANGER),
+            ("Exposed", audit["exposed"], AUDIT_DANGER),
+            ("Expired", audit["expired"], AUDIT_WARNING),
+            ("Reused", audit["reused"], "#fb7185"),
+            ("Average Password Length", f"{audit['average_length']} chars", AUDIT_INFO),
+        ]
+
+        for index, (label, value, color) in enumerate(stats):
+            self.create_audit_stat_tile(
+                self.audit_stats_grid,
+                label,
+                value,
+                color,
+                index // 3,
+                index % 3
+            )
+
+    def create_audit_stat_tile(self, parent, label, value, color, row, column):
+        tile = ctk.CTkFrame(
+            parent,
+            corner_radius=16,
+            fg_color=AUDIT_PANEL_SOFT
+        )
+        tile.grid(row=row, column=column, sticky="ew", padx=6, pady=6)
+
+        ctk.CTkLabel(
+            tile,
+            text=str(value),
+            text_color=color,
+            font=("Segoe UI", 22, "bold")
+        ).pack(anchor="w", padx=14, pady=(12, 0))
+
+        ctk.CTkLabel(
+            tile,
+            text=label,
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 11, "bold"),
+            wraplength=120,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(2, 12))
+
+    def refresh_security_checklist(self, audit):
+        for widget in self.security_checklist_frame.winfo_children():
+            widget.destroy()
+
+        feature_grid = ctk.CTkFrame(
+            self.security_checklist_frame,
+            fg_color="transparent"
+        )
+        feature_grid.pack(fill="x")
+        for column in range(2):
+            feature_grid.grid_columnconfigure(column, weight=1, uniform="audit_checks")
+
+        feature_rows = [
+            ("✔ Encryption Enabled", self.crypto is not None, "⚠ Encryption Locked"),
+            ("✔ Master Password Enabled", database.has_master_password(), "⚠ Master Password Missing"),
+            ("✔ Auto Lock Enabled", self.auto_lock_enabled, "⚠ Auto Lock Disabled"),
+            ("✔ Backup Available", os.path.exists(database.DB_FILE), "⚠ Backup Unavailable"),
+            ("✔ Password Health Enabled", True, ""),
+            ("✔ Exposure Checker Enabled", True, ""),
+            ("✔ Toast Notifications Enabled", True, ""),
+        ]
+
+        for index, (enabled_text, enabled, disabled_text) in enumerate(feature_rows):
+            text = enabled_text if enabled else disabled_text
+            color = AUDIT_SUCCESS if enabled else AUDIT_WARNING
+            self.create_security_check_tile(
+                feature_grid,
+                text,
+                color,
+                index // 2,
+                index % 2
+            )
+
+        warning_frame = ctk.CTkFrame(
+            self.security_checklist_frame,
+            fg_color="transparent"
+        )
+        warning_frame.pack(fill="x", pady=(12, 0))
+        warning_frame.grid_columnconfigure(0, weight=1)
+        warning_frame.grid_columnconfigure(1, weight=1)
+
+        if not audit["warnings"]:
+            self.create_security_check_tile(
+                warning_frame,
+                "✔ Everything looks secure.",
+                AUDIT_SUCCESS,
+                0,
+                0,
+                columnspan=2
+            )
+            return
+
+        for index, warning in enumerate(audit["warnings"]):
+            self.create_security_check_tile(
+                warning_frame,
+                warning["text"],
+                warning["color"],
+                index // 2,
+                index % 2
+            )
+
+    def create_security_check_tile(
+        self,
+        parent,
+        text,
+        color,
+        row,
+        column,
+        columnspan=1
+    ):
+        tile = ctk.CTkFrame(
+            parent,
+            corner_radius=14,
+            fg_color=AUDIT_PANEL_SOFT
+        )
+        tile.grid(
+            row=row,
+            column=column,
+            columnspan=columnspan,
+            sticky="ew",
+            padx=6,
+            pady=5
+        )
+
+        ctk.CTkLabel(
+            tile,
+            text=text,
+            text_color=color,
+            font=("Segoe UI", 13, "bold"),
+            anchor="w",
+            justify="left",
+            wraplength=320
+        ).pack(fill="x", padx=14, pady=10)
+
+    def cancel_security_score_animation(self):
+        for after_id in self.security_score_after_ids:
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+
+        self.security_score_after_ids = []
+
+    def render_security_score(self, score):
+        score = max(0, min(100, int(score)))
+        self.security_score_current = score
+
+        if self.widget_exists(getattr(self, "security_score_label", None)):
+            self.security_score_label.configure(text=f"{score} / 100")
+
+        if self.widget_exists(getattr(self, "security_score_progress", None)):
+            self.security_score_progress.set(score / 100)
+
+    def set_security_score(self, score):
+        self.cancel_security_score_animation()
+        self.render_security_score(score)
+
+    def animate_security_score(self, target_score):
+        self.cancel_security_score_animation()
+
+        target_score = max(0, min(100, int(target_score)))
+        base_score = SECURITY_SCORE_ANIMATION_STEPS[-1]
+        steps = [
+            round(target_score * (step / base_score))
+            for step in SECURITY_SCORE_ANIMATION_STEPS
+        ]
+        steps[0] = 0
+        steps[-1] = target_score
+        delay = SECURITY_SCORE_ANIMATION_MS // max(len(steps) - 1, 1)
+
+        for index, value in enumerate(steps):
+            after_id = self.after(
+                index * delay,
+                lambda value=value: self.render_security_score(value)
+            )
+            self.security_score_after_ids.append(after_id)
+
+    def open_security_recommendations_modal(self):
+        modal = getattr(self, "security_recommendations_modal", None)
+
+        if modal is not None and modal.winfo_exists():
+            modal.focus()
+            return
+
+        audit = self.dashboard_audit_data
+        if audit is None:
+            rows = database.get_passwords("", self.crypto)
+            favorites = database.get_favorites(self.crypto)
+            audit = self.build_security_audit(rows, favorites)
+            self.dashboard_audit_data = audit
+
+        modal_width = 720
+        modal_height = 620
+
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - modal_width) // 2
+        y = self.winfo_y() + (self.winfo_height() - modal_height) // 2
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Security Recommendations")
+        modal.geometry(f"{modal_width}x{modal_height}+{max(x, 0)}+{max(y, 0)}")
+        modal.minsize(640, 520)
+        modal.configure(fg_color=APP_BG)
+        modal.transient(self)
+        modal.grab_set()
+        self.security_recommendations_modal = modal
+
+        def close_modal():
+            try:
+                modal.grab_release()
+            except Exception:
+                pass
+            modal.destroy()
+
+        modal.protocol("WM_DELETE_WINDOW", close_modal)
+
+        header = ctk.CTkFrame(modal, fg_color="transparent")
+        header.pack(fill="x", padx=30, pady=(28, 14))
+
+        ctk.CTkLabel(
+            header,
+            text="Security Recommendations",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 26, "bold")
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            header,
+            text="Personalized fixes generated offline from your current vault.",
+            text_color=TEXT_MUTED,
+            font=("Segoe UI", 13)
+        ).pack(anchor="w", pady=(5, 0))
+
+        content = ctk.CTkScrollableFrame(
+            modal,
+            fg_color="transparent",
+            scrollbar_button_color=CARD_SOFT,
+            scrollbar_button_hover_color=CARD_SOFT_HOVER
+        )
+        content.pack(fill="both", expand=True, padx=30, pady=(0, 18))
+
+        recommendations = audit["recommendations"]
+        if not recommendations:
+            empty_state = ctk.CTkFrame(
+                content,
+                corner_radius=22,
+                fg_color=CARD_BG,
+                border_width=1,
+                border_color=BORDER
+            )
+            empty_state.pack(fill="x", pady=(8, 0))
+
+            ctk.CTkLabel(
+                empty_state,
+                text="Everything looks secure.",
+                text_color=AUDIT_SUCCESS,
+                font=("Segoe UI", 20, "bold")
+            ).pack(anchor="w", padx=22, pady=(22, 6))
+
+            ctk.CTkLabel(
+                empty_state,
+                text="No weak, reused, exposed, or expired passwords were found.",
+                text_color=TEXT_SECONDARY,
+                font=("Segoe UI", 13)
+            ).pack(anchor="w", padx=22, pady=(0, 22))
+        else:
+            for recommendation in recommendations:
+                self.create_security_recommendation_item(
+                    content,
+                    recommendation
+                )
+
+        action_row = ctk.CTkFrame(modal, fg_color="transparent")
+        action_row.pack(fill="x", padx=30, pady=(0, 28))
+
+        ctk.CTkButton(
+            action_row,
+            text="Close",
+            width=118,
+            height=42,
+            corner_radius=14,
+            fg_color=CARD_SOFT,
+            hover_color=CARD_SOFT_HOVER,
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 13, "bold"),
+            command=close_modal
+        ).pack(side="right")
+
+    def create_security_recommendation_item(self, parent, recommendation):
+        priority_colors = {
+            "High": AUDIT_DANGER,
+            "Medium": AUDIT_WARNING,
+            "Low": AUDIT_INFO,
+        }
+        priority = recommendation["priority"]
+        priority_color = priority_colors.get(priority, TEXT_SECONDARY)
+
+        item = ctk.CTkFrame(
+            parent,
+            corner_radius=22,
+            fg_color=CARD_BG,
+            border_width=1,
+            border_color=BORDER
+        )
+        item.pack(fill="x", pady=(8, 12))
+
+        top = ctk.CTkFrame(item, fg_color="transparent")
+        top.pack(fill="x", padx=22, pady=(20, 8))
+
+        ctk.CTkLabel(
+            top,
+            text=f"❌ {recommendation['website']}",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            top,
+            text=f"Priority: {priority}",
+            width=106,
+            height=30,
+            corner_radius=15,
+            fg_color=priority_color,
+            text_color=TEXT_ON_ACCENT,
+            font=("Segoe UI", 12, "bold")
+        ).pack(side="right")
+
+        if recommendation.get("username"):
+            ctk.CTkLabel(
+                item,
+                text=recommendation["username"],
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 12)
+            ).pack(anchor="w", padx=22, pady=(0, 8))
+
+        ctk.CTkLabel(
+            item,
+            text=recommendation["issue"],
+            text_color=priority_color,
+            font=("Segoe UI", 14, "bold"),
+            wraplength=600,
+            justify="left"
+        ).pack(anchor="w", padx=22, pady=(0, 8))
+
+        ctk.CTkLabel(
+            item,
+            text=f"Recommendation: {recommendation['recommendation']}",
+            text_color=TEXT_SECONDARY,
+            font=("Segoe UI", 13),
+            wraplength=600,
+            justify="left"
+        ).pack(anchor="w", padx=22, pady=(0, 20))
 
     def create_password_strength_section(self, strong, medium, weak, total):
         ctk.CTkFrame(
@@ -1288,6 +2109,9 @@ class SecurePassApp(ctk.CTk):
         self.record_activity()
         self.schedule_auto_lock_check()
 
+        if hasattr(self, "dashboard_view"):
+            self.update_dashboard()
+
         if self.auto_lock_enabled:
             self.show_toast("Auto Lock enabled.")
         else:
@@ -1677,7 +2501,7 @@ class SecurePassApp(ctk.CTk):
         self.page_title.configure(text="Dashboard")
         self.search_entry.pack_forget()
         self.set_active_nav("dashboard")
-        self.update_dashboard()
+        self.update_dashboard(animate=True)
 
     def show_vault(self):
         self.hide_all_views()
@@ -1995,6 +2819,9 @@ class SecurePassApp(ctk.CTk):
         pending_widgets = self.exposure_pending_widgets.pop(password_hash, [])
         for status_label, detail_label in pending_widgets:
             self.configure_exposure_widgets(status_label, detail_label, status)
+
+        if hasattr(self, "dashboard_view"):
+            self.update_dashboard()
 
     def create_password_list_row(self, item):
         password_id, website, username, password, note, updated_at, favorite = item
