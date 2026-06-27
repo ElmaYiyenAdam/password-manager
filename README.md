@@ -207,13 +207,13 @@ SecurePass
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/SecurePass.git
+git clone https://github.com/ElmaYiyenAdam/password-manager.git
 ```
 
 Go into the project:
 
 ```bash
-cd SecurePass
+cd password-manager
 ```
 
 Install dependencies:
