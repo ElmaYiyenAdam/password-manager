@@ -48,6 +48,7 @@ TEXT_ON_ACCENT = "#ffffff"
 ACCENT = "#7c3aed"
 ACCENT_HOVER = "#6d28d9"
 HIBP_RANGE_URL = "https://api.pwnedpasswords.com/range/{prefix}"
+PASSWORD_UPDATE_THRESHOLD_DAYS = 180
 
 PASSWORD_HEALTH_STYLES = {
     "Strong": {
@@ -113,6 +114,42 @@ def normalize_theme(theme):
 
 def get_theme_label(theme):
     return normalize_theme(theme).title()
+
+
+def parse_updated_at(updated_at):
+    updated_at_text = str(updated_at or "").strip()
+
+    if not updated_at_text:
+        return None
+
+    try:
+        return datetime.strptime(updated_at_text, "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
+def get_password_age_days(updated_at):
+    changed_at = parse_updated_at(updated_at)
+
+    if changed_at is None:
+        return None
+
+    return max((datetime.now().date() - changed_at.date()).days, 0)
+
+
+def format_password_age(updated_at):
+    age_days = get_password_age_days(updated_at)
+    updated_at_text = str(updated_at or "").strip()
+
+    if age_days is None:
+        if updated_at_text:
+            return f"Updated {updated_at_text}"
+        return None
+
+    if age_days == 0:
+        return "Last changed today"
+
+    return f"Last changed {age_days} days ago"
 
 
 def load_saved_theme():
@@ -620,9 +657,14 @@ class SecurePassApp(ctk.CTk):
         weak = 0
 
         accounts_by_password = {}
+        passwords_needing_update = []
 
         for row in rows:
-            _, website, username, password, _, _, _ = row
+            _, website, username, password, _, updated_at, _ = row
+            age_days = get_password_age_days(updated_at)
+
+            if age_days is not None and age_days >= PASSWORD_UPDATE_THRESHOLD_DAYS:
+                passwords_needing_update.append((website, username, age_days))
 
             if password == "[decryption failed]" or password == "[locked]":
                 continue
@@ -657,6 +699,7 @@ class SecurePassApp(ctk.CTk):
                 text_color=TEXT_MUTED,
                 font=("Segoe UI", 15)
             ).pack(anchor="w", pady=10)
+            self.create_expiring_passwords_section(passwords_needing_update)
             self.create_favorites_section(favorites)
             self.create_reused_password_section(reused_groups)
             return
@@ -664,11 +707,11 @@ class SecurePassApp(ctk.CTk):
         security_text = "Your vault looks healthy."
         security_color = "#22c55e"
 
-        if weak > 0 or reused > 0:
+        if weak > 0 or reused > 0 or passwords_needing_update:
             security_text = "Some passwords need attention."
             security_color = "#f59e0b"
 
-        if weak >= 3 or reused >= 3:
+        if weak >= 3 or reused >= 3 or len(passwords_needing_update) >= 3:
             security_text = "Your vault has multiple security warnings."
             security_color = "#ef4444"
 
@@ -686,8 +729,42 @@ class SecurePassApp(ctk.CTk):
             font=("Segoe UI", 14)
         ).pack(anchor="w")
 
+        self.create_expiring_passwords_section(passwords_needing_update)
         self.create_favorites_section(favorites)
         self.create_reused_password_section(reused_groups)
+
+    def create_expiring_passwords_section(self, passwords_needing_update):
+        ctk.CTkFrame(
+            self.dashboard_summary_frame,
+            height=1,
+            fg_color=BORDER
+        ).pack(fill="x", pady=(22, 18))
+
+        ctk.CTkLabel(
+            self.dashboard_summary_frame,
+            text="Passwords Needing Update",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        if not passwords_needing_update:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text="No passwords need updating.",
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 14)
+            ).pack(anchor="w")
+            return
+
+        for website, username, age_days in passwords_needing_update:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text=f"{website} — {username} — {age_days} days old",
+                text_color=TEXT_PRIMARY,
+                font=("Segoe UI", 14),
+                justify="left",
+                wraplength=680
+            ).pack(anchor="w", pady=(0, 8))
 
     def create_favorites_section(self, favorites):
         ctk.CTkFrame(
@@ -1809,6 +1886,8 @@ class SecurePassApp(ctk.CTk):
         health_label, health_bg, health_text, health_reason = self.get_password_health(password)
         exposure_status = self.get_exposure_status(password)
         exposure_label, exposure_detail, exposure_bg, exposure_text = self.get_exposure_display(exposure_status)
+        age_days = get_password_age_days(updated_at)
+        password_age_text = format_password_age(updated_at)
 
         badge_row = ctk.CTkFrame(left, fg_color="transparent")
         badge_row.pack(anchor="w", pady=(10, 0))
@@ -1864,13 +1943,28 @@ class SecurePassApp(ctk.CTk):
                 font=("Segoe UI", 12)
             ).pack(anchor="w", pady=(6, 0))
 
-        if updated_at:
+        if password_age_text:
             ctk.CTkLabel(
                 left,
-                text=f"Updated {updated_at}",
+                text=password_age_text,
                 text_color=TEXT_MUTED,
                 font=("Segoe UI", 12)
             ).pack(anchor="w", pady=(6, 0))
+
+        if age_days is not None and age_days >= PASSWORD_UPDATE_THRESHOLD_DAYS:
+            ctk.CTkLabel(
+                left,
+                text="\u26a0 Change this password",
+                text_color=DANGER_TEXT,
+                font=("Segoe UI", 12, "bold")
+            ).pack(anchor="w", pady=(6, 0))
+
+            ctk.CTkLabel(
+                left,
+                text="Recommendation: Update this password.",
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 12)
+            ).pack(anchor="w", pady=(2, 0))
 
         right = ctk.CTkFrame(card, fg_color="transparent")
         right.pack(side="right", padx=18, pady=12)
