@@ -7,7 +7,6 @@ import shutil
 import string
 import time
 from datetime import datetime
-from collections import Counter
 import database
 
 THEME_SETTING_KEY = "theme"
@@ -571,15 +570,15 @@ class SecurePassApp(ctk.CTk):
         strong = 0
         weak = 0
 
-        plain_passwords = []
+        accounts_by_password = {}
 
         for row in rows:
-            _, _, _, password, _, _ = row
+            _, website, username, password, _, _ = row
 
             if password == "[decryption failed]" or password == "[locked]":
                 continue
 
-            plain_passwords.append(password)
+            accounts_by_password.setdefault(password, []).append((website, username))
 
             score = self.calculate_strength(password)
             if score >= 4:
@@ -587,8 +586,12 @@ class SecurePassApp(ctk.CTk):
             elif score <= 2:
                 weak += 1
 
-        counts = Counter(plain_passwords)
-        reused = sum(1 for password in plain_passwords if counts[password] > 1)
+        reused_groups = [
+            accounts
+            for accounts in accounts_by_password.values()
+            if len(accounts) > 1
+        ]
+        reused = sum(len(accounts) for accounts in reused_groups)
 
         self.total_card.value_label.configure(text=str(total))
         self.strong_card.value_label.configure(text=str(strong))
@@ -605,6 +608,7 @@ class SecurePassApp(ctk.CTk):
                 text_color=TEXT_MUTED,
                 font=("Segoe UI", 15)
             ).pack(anchor="w", pady=10)
+            self.create_reused_password_section(reused_groups)
             return
 
         security_text = "Your vault looks healthy."
@@ -631,6 +635,59 @@ class SecurePassApp(ctk.CTk):
             text_color=TEXT_SECONDARY,
             font=("Segoe UI", 14)
         ).pack(anchor="w")
+
+        self.create_reused_password_section(reused_groups)
+
+    def create_reused_password_section(self, reused_groups):
+        ctk.CTkFrame(
+            self.dashboard_summary_frame,
+            height=1,
+            fg_color=BORDER
+        ).pack(fill="x", pady=(22, 18))
+
+        ctk.CTkLabel(
+            self.dashboard_summary_frame,
+            text="\u26a0 Reused Passwords",
+            text_color=TEXT_PRIMARY,
+            font=("Segoe UI", 18, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        if not reused_groups:
+            ctk.CTkLabel(
+                self.dashboard_summary_frame,
+                text="No reused passwords found.",
+                text_color=TEXT_MUTED,
+                font=("Segoe UI", 14)
+            ).pack(anchor="w")
+            return
+
+        show_group_labels = len(reused_groups) > 1
+
+        for index, accounts in enumerate(reused_groups, start=1):
+            group_frame = ctk.CTkFrame(
+                self.dashboard_summary_frame,
+                corner_radius=16,
+                fg_color=CARD_SOFT
+            )
+            group_frame.pack(fill="x", pady=(0, 10))
+
+            if show_group_labels:
+                ctk.CTkLabel(
+                    group_frame,
+                    text=f"Group {index}: {len(accounts)} accounts share one password",
+                    text_color=TEXT_SECONDARY,
+                    font=("Segoe UI", 12, "bold")
+                ).pack(anchor="w", padx=16, pady=(14, 4))
+
+            for website, username in accounts:
+                ctk.CTkLabel(
+                    group_frame,
+                    text=f"- {website} \u2014 {username}",
+                    text_color=TEXT_PRIMARY,
+                    font=("Segoe UI", 14),
+                    justify="left",
+                    wraplength=680
+                ).pack(anchor="w", padx=16, pady=(4, 10))
 
     def create_vault_view(self):
         self.vault_view = ctk.CTkFrame(self.main_area, fg_color="transparent")
