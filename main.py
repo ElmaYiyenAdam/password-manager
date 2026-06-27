@@ -1,11 +1,14 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import csv
+import hashlib
 import json
 import random
 import shutil
 import string
+import threading
 import time
+import urllib.request
 from datetime import datetime
 import database
 
@@ -44,6 +47,7 @@ TEXT_ON_ACCENT = "#ffffff"
 
 ACCENT = "#7c3aed"
 ACCENT_HOVER = "#6d28d9"
+HIBP_RANGE_URL = "https://api.pwnedpasswords.com/range/{prefix}"
 
 PASSWORD_HEALTH_STYLES = {
     "Strong": {
@@ -57,6 +61,27 @@ PASSWORD_HEALTH_STYLES = {
         "reason": "Could be stronger",
     },
     "Weak": {
+        "bg": ("#fee2e2", "#450a0a"),
+        "text": ("#b91c1c", "#fca5a5"),
+    },
+}
+
+EXPOSURE_STATUS_STYLES = {
+    "not_checked": {
+        "label": "⚪ Not checked",
+        "detail": "",
+        "bg": ("#e2e8f0", "#334155"),
+        "text": ("#475569", "#cbd5e1"),
+    },
+    "safe": {
+        "label": "🟢 Safe",
+        "detail": "No known exposure found",
+        "bg": ("#dcfce7", "#052e16"),
+        "text": ("#166534", "#86efac"),
+    },
+    "exposed": {
+        "label": "🔴 Exposed",
+        "detail": "Found in {count} known breaches",
         "bg": ("#fee2e2", "#450a0a"),
         "text": ("#b91c1c", "#fca5a5"),
     },
@@ -138,6 +163,7 @@ class SecurePassApp(ctk.CTk):
         self.auto_lock_after_id = None
         self.last_activity_time = time.monotonic()
         self.editing_password_id = None
+        self.exposure_statuses = {}
         self.toast = None
         self.toast_after_id = None
 
@@ -169,6 +195,11 @@ class SecurePassApp(ctk.CTk):
                 "bg": "#14532d",
                 "border": "#22c55e",
                 "text": "#dcfce7",
+            },
+            "error": {
+                "bg": "#7f1d1d",
+                "border": "#ef4444",
+                "text": "#fee2e2",
             }
         }
         style = colors.get(kind, colors["success"])
@@ -1560,6 +1591,163 @@ class SecurePassApp(ctk.CTk):
 
         return level, style["bg"], style["text"], reason
 
+    def get_password_sha1_hash(self, password):
+        return hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+
+    def get_exposure_status(self, password_id, password):
+        password_hash = self.get_password_sha1_hash(password)
+        status = self.exposure_statuses.get(password_id)
+
+        if status is None or status.get("password_hash") != password_hash:
+            return {
+                "state": "not_checked",
+                "count": 0,
+                "password_hash": password_hash,
+            }
+
+        return status
+
+    def get_exposure_display(self, status):
+        state = status.get("state", "not_checked")
+        style = EXPOSURE_STATUS_STYLES.get(
+            state,
+            EXPOSURE_STATUS_STYLES["not_checked"]
+        )
+        detail = style["detail"].format(count=status.get("count", 0))
+
+        return style["label"], detail, style["bg"], style["text"]
+
+    def widget_exists(self, widget):
+        try:
+            return widget is not None and widget.winfo_exists()
+        except Exception:
+            return False
+
+    def configure_exposure_widgets(self, status_label, detail_label, status):
+        label, detail, bg_color, text_color = self.get_exposure_display(status)
+
+        if self.widget_exists(status_label):
+            status_label.configure(
+                text=label,
+                fg_color=bg_color,
+                text_color=text_color
+            )
+
+        if self.widget_exists(detail_label):
+            detail_label.configure(
+                text=detail,
+                text_color=text_color if detail else TEXT_MUTED
+            )
+
+    def fetch_exposure_count(self, password_hash):
+        prefix = password_hash[:5]
+        suffix = password_hash[5:]
+        request = urllib.request.Request(
+            HIBP_RANGE_URL.format(prefix=prefix),
+            headers={
+                "Add-Padding": "true",
+                "User-Agent": "SecurePass-Password-Manager",
+            }
+        )
+
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status != 200:
+                raise RuntimeError("Unexpected HIBP response")
+
+            body = response.read().decode("utf-8")
+
+        for line in body.splitlines():
+            try:
+                returned_suffix, count = line.split(":", 1)
+            except ValueError:
+                continue
+
+            if returned_suffix.upper() == suffix:
+                return int(count)
+
+        return 0
+
+    def check_password_exposure(
+        self,
+        password_id,
+        password,
+        status_label,
+        detail_label,
+        button
+    ):
+        if password in {"[locked]", "[decryption failed]"}:
+            self.show_toast("Exposure check failed", kind="error")
+            return
+
+        password_hash = self.get_password_sha1_hash(password)
+
+        if self.widget_exists(button):
+            button.configure(text="Checking", state="disabled")
+
+        def worker():
+            try:
+                breach_count = self.fetch_exposure_count(password_hash)
+            except Exception:
+                try:
+                    self.after(
+                        0,
+                        lambda: self.finish_exposure_check(
+                            password_id,
+                            password_hash,
+                            0,
+                            False,
+                            status_label,
+                            detail_label,
+                            button
+                        )
+                    )
+                except Exception:
+                    pass
+                return
+
+            try:
+                self.after(
+                    0,
+                    lambda: self.finish_exposure_check(
+                        password_id,
+                        password_hash,
+                        breach_count,
+                        True,
+                        status_label,
+                        detail_label,
+                        button
+                    )
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_exposure_check(
+        self,
+        password_id,
+        password_hash,
+        breach_count,
+        succeeded,
+        status_label,
+        detail_label,
+        button
+    ):
+        if self.widget_exists(button):
+            button.configure(text="Check", state="normal")
+
+        if not succeeded:
+            self.show_toast("Exposure check failed", kind="error")
+            return
+
+        status = {
+            "state": "exposed" if breach_count > 0 else "safe",
+            "count": breach_count,
+            "password_hash": password_hash,
+        }
+        self.exposure_statuses[password_id] = status
+        self.configure_exposure_widgets(status_label, detail_label, status)
+
     def create_password_card(self, item):
         password_id, website, username, password, note, updated_at, favorite = item
 
@@ -1596,9 +1784,14 @@ class SecurePassApp(ctk.CTk):
         password_label.pack(anchor="w", pady=(6, 0))
 
         health_label, health_bg, health_text, health_reason = self.get_password_health(password)
+        exposure_status = self.get_exposure_status(password_id, password)
+        exposure_label, exposure_detail, exposure_bg, exposure_text = self.get_exposure_display(exposure_status)
+
+        badge_row = ctk.CTkFrame(left, fg_color="transparent")
+        badge_row.pack(anchor="w", pady=(10, 0))
 
         ctk.CTkLabel(
-            left,
+            badge_row,
             text=health_label,
             width=74,
             height=24,
@@ -1606,7 +1799,19 @@ class SecurePassApp(ctk.CTk):
             fg_color=health_bg,
             text_color=health_text,
             font=("Segoe UI", 11, "bold")
-        ).pack(anchor="w", pady=(10, 0))
+        ).pack(side="left")
+
+        exposure_status_label = ctk.CTkLabel(
+            badge_row,
+            text=exposure_label,
+            width=112,
+            height=24,
+            corner_radius=12,
+            fg_color=exposure_bg,
+            text_color=exposure_text,
+            font=("Segoe UI", 11, "bold")
+        )
+        exposure_status_label.pack(side="left", padx=(8, 0))
 
         ctk.CTkLabel(
             left,
@@ -1614,6 +1819,14 @@ class SecurePassApp(ctk.CTk):
             text_color=health_text,
             font=("Segoe UI", 12)
         ).pack(anchor="w", pady=(4, 0))
+
+        exposure_detail_label = ctk.CTkLabel(
+            left,
+            text=exposure_detail,
+            text_color=exposure_text if exposure_detail else TEXT_MUTED,
+            font=("Segoe UI", 12)
+        )
+        exposure_detail_label.pack(anchor="w", pady=(4, 0))
 
         if note:
             ctk.CTkLabel(
@@ -1703,6 +1916,25 @@ class SecurePassApp(ctk.CTk):
             command=lambda: self.delete_password(password_id)
         ).pack(pady=3)
 
+        check_button = ctk.CTkButton(
+            right,
+            text="Check",
+            width=76,
+            height=32,
+            corner_radius=10,
+            fg_color=NEUTRAL_BUTTON_BG,
+            hover_color=NEUTRAL_BUTTON_HOVER,
+            text_color=TEXT_PRIMARY,
+            command=lambda: self.check_password_exposure(
+                password_id,
+                password,
+                exposure_status_label,
+                exposure_detail_label,
+                check_button
+            )
+        )
+        check_button.pack(pady=3)
+
     def toggle_favorite(self, password_id):
         favorite = database.toggle_favorite(password_id)
 
@@ -1751,6 +1983,7 @@ class SecurePassApp(ctk.CTk):
             return
 
         database.delete_password(password_id)
+        self.exposure_statuses.pop(password_id, None)
         self.load_passwords()
         self.update_dashboard()
         self.show_toast("Password deleted successfully.")
