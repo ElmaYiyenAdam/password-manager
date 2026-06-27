@@ -138,10 +138,10 @@ SecurePass was designed with security as the highest priority.
 
 ### Password Storage
 
-* Passwords are encrypted using **Fernet symmetric encryption**.
-* Passwords are **never stored as plain text**.
-* Master Password is hashed before storage.
-* The encryption key is derived from the Master Password.
+- Passwords are encrypted using Fernet symmetric encryption.
+- Passwords are never stored in plain text.
+- An encryption key is derived from the Master Password.
+- The vault can only be decrypted after successful Master Password verification.
 
 ### Password Exposure Check
 
@@ -180,11 +180,15 @@ SecurePass
 │
 ├── main.py
 ├── database.py
-├── vault.db
 ├── requirements.txt
 ├── assets/
-├── screenshots/
-└── README.md
+│   ├── dashboard.png
+│   ├── vault.png
+│   ├── generator.png
+│   └── settings.png
+├── LICENSE
+├── README.md
+└── .gitignore
 ```
 
 ---
