@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 import random
 import string
+import time
 from datetime import datetime
 from collections import Counter
 import database
@@ -10,6 +11,17 @@ THEME_SETTING_KEY = "theme"
 DEFAULT_THEME = "dark"
 THEME_OPTIONS = ["Dark", "Light", "System"]
 THEME_VALUES = {"dark", "light", "system"}
+
+AUTO_LOCK_ENABLED_SETTING_KEY = "auto_lock_enabled"
+AUTO_LOCK_TIMEOUT_SETTING_KEY = "auto_lock_timeout_seconds"
+AUTO_LOCK_TIMEOUT_OPTIONS = {
+    "1 minute": 60,
+    "5 minutes": 300,
+    "10 minutes": 600,
+    "30 minutes": 1800,
+}
+DEFAULT_AUTO_LOCK_TIMEOUT_SECONDS = AUTO_LOCK_TIMEOUT_OPTIONS["5 minutes"]
+AUTO_LOCK_CHECK_INTERVAL_MS = 1000
 
 APP_BG = ("#f1f5f9", "#0f172a")
 SIDEBAR_BG = ("#ffffff", "#020617")
@@ -51,12 +63,58 @@ def load_saved_theme():
     return theme
 
 
+def setting_to_bool(value):
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_auto_lock_timeout(value):
+    if value in AUTO_LOCK_TIMEOUT_OPTIONS:
+        return AUTO_LOCK_TIMEOUT_OPTIONS[value]
+
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_AUTO_LOCK_TIMEOUT_SECONDS
+
+    if seconds in AUTO_LOCK_TIMEOUT_OPTIONS.values():
+        return seconds
+
+    return DEFAULT_AUTO_LOCK_TIMEOUT_SECONDS
+
+
+def get_auto_lock_timeout_label(seconds):
+    normalized_seconds = normalize_auto_lock_timeout(seconds)
+
+    for label, value in AUTO_LOCK_TIMEOUT_OPTIONS.items():
+        if value == normalized_seconds:
+            return label
+
+    return "5 minutes"
+
+
+def load_saved_auto_lock_settings():
+    enabled = setting_to_bool(database.get_setting(AUTO_LOCK_ENABLED_SETTING_KEY, "0"))
+    timeout_seconds = normalize_auto_lock_timeout(
+        database.get_setting(
+            AUTO_LOCK_TIMEOUT_SETTING_KEY,
+            DEFAULT_AUTO_LOCK_TIMEOUT_SECONDS
+        )
+    )
+
+    return enabled, timeout_seconds
+
+
 class SecurePassApp(ctk.CTk):
     def __init__(self):
         initial_theme = load_saved_theme()
+        auto_lock_enabled, auto_lock_timeout_seconds = load_saved_auto_lock_settings()
         super().__init__()
 
         self.current_theme = initial_theme
+        self.auto_lock_enabled = auto_lock_enabled
+        self.auto_lock_timeout_seconds = auto_lock_timeout_seconds
+        self.auto_lock_after_id = None
+        self.last_activity_time = time.monotonic()
         self.editing_password_id = None
         self.toast = None
         self.toast_after_id = None
@@ -66,6 +124,8 @@ class SecurePassApp(ctk.CTk):
         self.minsize(1000, 620)
         self.configure(fg_color=APP_BG)
         self.crypto = None
+        self.bind_activity_events()
+        self.schedule_auto_lock_check()
 
         if database.has_master_password():
             self.create_unlock_screen()
@@ -123,6 +183,70 @@ class SecurePassApp(ctk.CTk):
 
         self.toast = None
         self.toast_after_id = None
+
+    def bind_activity_events(self):
+        self.bind_all("<Key>", self.record_activity, add="+")
+        self.bind_all("<Motion>", self.record_activity, add="+")
+        self.bind_all("<Button>", self.record_activity, add="+")
+
+    def record_activity(self, event=None):
+        self.last_activity_time = time.monotonic()
+
+    def schedule_auto_lock_check(self):
+        if self.auto_lock_after_id is None:
+            self.auto_lock_after_id = self.after(
+                AUTO_LOCK_CHECK_INTERVAL_MS,
+                self.check_auto_lock
+            )
+
+    def check_auto_lock(self):
+        self.auto_lock_after_id = None
+
+        if self.crypto is not None and self.auto_lock_enabled:
+            idle_seconds = time.monotonic() - self.last_activity_time
+
+            if idle_seconds >= self.auto_lock_timeout_seconds:
+                self.auto_lock_vault()
+
+        self.schedule_auto_lock_check()
+
+    def auto_lock_vault(self):
+        if self.crypto is None:
+            return
+
+        self.clear_sensitive_fields()
+        self.close_change_password_modal()
+
+        self.editing_password_id = None
+        self.crypto = None
+        self.create_unlock_screen()
+        self.show_toast("Vault locked due to inactivity.")
+
+    def close_change_password_modal(self):
+        modal = getattr(self, "change_password_modal", None)
+
+        try:
+            if modal is not None and modal.winfo_exists():
+                modal.grab_release()
+                modal.destroy()
+        except Exception:
+            pass
+
+    def clear_sensitive_fields(self):
+        for entry_name in [
+            "master_password_entry",
+            "confirm_master_entry",
+            "unlock_password_entry",
+            "password_entry",
+            "generated_password_entry",
+        ]:
+            entry = getattr(self, entry_name, None)
+
+            try:
+                if entry is not None and entry.winfo_exists():
+                    entry.delete(0, "end")
+            except Exception:
+                pass
 
     def create_master_setup_screen(self):
         self.clear_window()
@@ -252,6 +376,8 @@ class SecurePassApp(ctk.CTk):
             messagebox.showerror("Access Denied", "Incorrect master password.")
 
     def create_app_layout(self):
+        self.last_activity_time = time.monotonic()
+        self.schedule_auto_lock_check()
         self.clear_window()
         self.configure(fg_color=APP_BG)
 
@@ -661,7 +787,7 @@ class SecurePassApp(ctk.CTk):
             "Auto Lock",
             "Lock the app after a period of inactivity."
         )
-        self.auto_lock_var = ctk.BooleanVar(value=False)
+        self.auto_lock_var = ctk.BooleanVar(value=self.auto_lock_enabled)
         ctk.CTkSwitch(
             auto_lock_row,
             text="",
@@ -669,7 +795,8 @@ class SecurePassApp(ctk.CTk):
             fg_color=CARD_SOFT,
             progress_color=ACCENT,
             button_color=TEXT_SECONDARY,
-            button_hover_color=TEXT_PRIMARY
+            button_hover_color=TEXT_PRIMARY,
+            command=self.change_auto_lock_state
         ).pack(side="right")
 
         timeout_row = self.create_settings_row(
@@ -677,11 +804,14 @@ class SecurePassApp(ctk.CTk):
             "Timeout",
             "Choose when auto lock should activate."
         )
-        self.timeout_var = ctk.StringVar(value="5 minutes")
+        self.timeout_var = ctk.StringVar(
+            value=get_auto_lock_timeout_label(self.auto_lock_timeout_seconds)
+        )
         self.timeout_menu = self.create_settings_dropdown(
             timeout_row,
-            ["1 minute", "5 minutes", "10 minutes", "30 minutes"],
-            self.timeout_var
+            list(AUTO_LOCK_TIMEOUT_OPTIONS.keys()),
+            self.timeout_var,
+            self.change_auto_lock_timeout
         )
         self.timeout_menu.pack(side="right")
 
@@ -765,6 +895,29 @@ class SecurePassApp(ctk.CTk):
         self.current_theme = theme
         self.theme_var.set(get_theme_label(theme))
         self.show_toast(f"Theme changed to {get_theme_label(theme)}")
+
+    def change_auto_lock_state(self):
+        self.auto_lock_enabled = bool(self.auto_lock_var.get())
+        database.set_setting(
+            AUTO_LOCK_ENABLED_SETTING_KEY,
+            "1" if self.auto_lock_enabled else "0"
+        )
+
+        self.record_activity()
+        self.schedule_auto_lock_check()
+
+        if self.auto_lock_enabled:
+            self.show_toast("Auto Lock enabled.")
+        else:
+            self.show_toast("Auto Lock disabled.")
+
+    def change_auto_lock_timeout(self, selected_timeout):
+        timeout_seconds = normalize_auto_lock_timeout(selected_timeout)
+        self.auto_lock_timeout_seconds = timeout_seconds
+        self.timeout_var.set(get_auto_lock_timeout_label(timeout_seconds))
+        database.set_setting(AUTO_LOCK_TIMEOUT_SETTING_KEY, str(timeout_seconds))
+        self.record_activity()
+        self.schedule_auto_lock_check()
 
     def create_settings_action_button(self, parent, text):
         ctk.CTkButton(
