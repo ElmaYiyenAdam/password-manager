@@ -49,24 +49,8 @@ The application includes password health analysis, password exposure checking, a
 * Strong / Medium / Weak Analysis
 * Reused Password Overview
 * Exposed Password Overview
-* Favorite Passwords
 * Recently Updated Passwords
 * Password Age
-
----
-
-## 🔑 Password Management
-
-* Add Password
-* Edit Password
-* Delete Password
-* Copy Password
-* Show / Hide Password
-* Search Passwords
-* Favorites
-* Notes
-* Password Age
-* Password Health
 
 ---
 
@@ -87,10 +71,7 @@ Features include:
 
 ## ⚙ Settings
 
-* Dark Theme
-* Light Theme
-* System Theme
-* Change Master Password
+* Dark/Light Theme
 * Auto Lock
 * Backup
 * Import
@@ -161,35 +142,13 @@ SecurePass continuously analyzes your vault.
 
 The Security Audit includes:
 
-* Weak Password Detection
-* Medium Password Detection
+* Weak/Medium Password Detection
 * Reused Password Detection
 * Password Exposure Detection
-* Expired Password Detection
 * Security Score
 * Recommendations for improving your vault
 
 Everything runs **locally** except optional password exposure checks.
-
----
-
-# 🏗 Project Structure
-
-```text
-SecurePass
-│
-├── main.py
-├── database.py
-├── requirements.txt
-├── assets/
-│   ├── dashboard.png
-│   ├── vault.png
-│   ├── generator.png
-│   └── settings.png
-├── LICENSE
-├── README.md
-└── .gitignore
-```
 
 ---
 
@@ -262,7 +221,6 @@ python main.py
 * Secure Cloud Sync
 * Biometric Authentication
 * Password Sharing
-* Browser Autofill
 
 ---
 
