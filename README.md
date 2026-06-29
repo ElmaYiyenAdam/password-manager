@@ -28,6 +28,7 @@ The application includes password health analysis, password exposure checking, a
 
 # ✨ Features
 
+
 ## 🔒 Security
 
 * Master Password Authentication
